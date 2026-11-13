@@ -441,8 +441,9 @@ impl Vortex {
                 dirty = true;
             }
         }
+        // Fires ~5 s in by default; VORTEX_DEBUG_AT=<ticks> (30/s) to wait longer.
         #[cfg(debug_assertions)]
-        if self.ticks == 150 {
+        if self.ticks == std::env::var("VORTEX_DEBUG_AT").ok().and_then(|v| v.parse().ok()).unwrap_or(150) {
             self.debug_hook(cx);
         }
         if dirty {
@@ -484,14 +485,22 @@ impl Vortex {
     #[cfg(debug_assertions)]
     fn debug_hook(&mut self, cx: &mut Context<Self>) {
         match std::env::var("VORTEX_DEBUG").as_deref() {
-            Ok("select") => {
-                let id = {
+            // `select` (a recent post with some text) or `select:<query>` (the
+            // newest buffered event matching a filter query, without changing
+            // the visible filter); scrolls it into view.
+            Ok(v) if v == "select" || v.starts_with("select:") => {
+                let query = v.strip_prefix("select:").unwrap_or("type:post len>40");
+                let Ok(filter) = Filter::parse(query) else { return };
+                let found = {
                     let view = self.engine.store.view();
-                    (0..view.len()).rev().filter_map(|i| view.row(i)).find(|e| e.text().len() > 40).map(|e| e.id)
+                    (0..view.len()).rev().find_map(|i| view.row(i).filter(|e| filter.matches(e)).map(|e| (i, e.id)))
                 };
                 self.follow = false;
                 self.show_welcome = false;
-                self.select(id, cx);
+                self.select(found.map(|(_, id)| id), cx);
+                if let Some((ix, _)) = found {
+                    self.scroll.scroll_to_item(ix, ScrollStrategy::Center);
+                }
             }
             Ok("settings") => self.show_settings = true,
             Ok("badfilter") => self.set_query("type:post lnag:en (has:media", cx),

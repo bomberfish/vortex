@@ -357,12 +357,12 @@ cargo fmt                                             # rustfmt.toml: width 120
 ```
 
 Debug builds accept `VORTEX_DEBUG` to put the UI into a state a few seconds
-after launch, for screenshots and visual checks without driving the mouse or
-keyboard:
+after launch (`VORTEX_DEBUG_AT=<ticks>`, 30 per second, to wait longer), for
+screenshots and visual checks without driving the mouse or keyboard:
 
 | value | effect |
 | --- | --- |
-| `select` | select a recent post (closes the welcome screen) |
+| `select`, `select:<query>` | select a recent post, or the newest event matching a query; closes the welcome screen |
 | `settings` | open settings |
 | `inspect:<handle, DID or at:// URI>[#history\|#backlinks]` | open the inspector |
 | `palette:<text>` | open the palette with text |
