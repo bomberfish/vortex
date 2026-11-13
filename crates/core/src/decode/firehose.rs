@@ -15,7 +15,7 @@
 //! only ever adds ASCII around the text it copies, so the event is valid
 //! exactly when every string in its record is.
 
-use super::car::Car;
+use super::car::{for_each_block, Car};
 use super::cbor::{check_utf8, cid_to_bytes, push_i64, Reader};
 use super::frame::decode_json_frame;
 use super::{DecodeError, Decoded, Notice, NoticeLevel};
@@ -29,7 +29,11 @@ struct RepoOp<'a> {
     action: &'a str,
     path: &'a str,
     cid: Option<&'a [u8]>,
+    /// The record block for `cid`, once [`Ops::resolve`] has found it.
+    block: Option<&'a [u8]>,
 }
+
+const NO_OP: RepoOp<'static> = RepoOp { action: "", path: "", cid: None, block: None };
 
 /// Ops kept on the stack; almost every commit has exactly one.
 const INLINE_OPS: usize = 4;
@@ -43,7 +47,41 @@ struct Ops<'a> {
 
 impl<'a> Ops<'a> {
     fn new() -> Self {
-        Ops { inline: [RepoOp { action: "", path: "", cid: None }; INLINE_OPS], len: 0, spill: Vec::new() }
+        Ops { inline: [NO_OP; INLINE_OPS], len: 0, spill: Vec::new() }
+    }
+
+    /// Find each op's record among the blocks of the commit's archive.
+    ///
+    /// All or nothing: a commit without usable blocks (tooBig, or an archive
+    /// that is malformed anywhere) still yields its ops, just without record
+    /// bodies. If a CID occurs more than once, the first block wins.
+    fn resolve(&mut self, archive: &'a [u8]) {
+        if archive.is_empty() || self.len == 0 {
+            return;
+        }
+        if self.spill.is_empty() {
+            // The usual case, a handful of ops: match them while walking the
+            // archive, with no index and no allocation. The walk itself is a
+            // chain of dependent loads (about ten blocks per commit), which
+            // is what this stage costs.
+            let ops = &mut self.inline[..self.len];
+            let walked = for_each_block(archive, |cid, data| {
+                for op in ops.iter_mut() {
+                    if op.block.is_none() && op.cid == Some(cid) {
+                        op.block = Some(data);
+                    }
+                }
+            });
+            if walked.is_err() {
+                for op in ops {
+                    op.block = None;
+                }
+            }
+        } else if let Ok(car) = Car::parse(archive) {
+            for op in self.inline.iter_mut().chain(&mut self.spill) {
+                op.block = op.cid.and_then(|cid| car.get(cid));
+            }
+        }
     }
 
     fn push(&mut self, op: RepoOp<'a>) {
@@ -170,7 +208,7 @@ fn decode_commit(
                 if let Some(count) = r.array()? {
                     for _ in 0..count {
                         let Some(fields) = r.map()? else { continue };
-                        let mut op = RepoOp { action: "", path: "", cid: None };
+                        let mut op = NO_OP;
                         for _ in 0..fields {
                             match r.key_bytes()? {
                                 b"action" => op.action = r.str()?.unwrap_or(""),
@@ -196,9 +234,7 @@ fn decode_commit(
         return Err(DecodeError::Malformed("commit has no repo"));
     }
 
-    // A commit without usable blocks (tooBig, or a malformed archive) still
-    // yields its ops, just without record bodies.
-    let car = if blocks.is_empty() { None } else { Car::parse(blocks).ok() };
+    ops.resolve(blocks);
 
     let mut first_err = None;
     for op in ops.iter() {
@@ -218,7 +254,7 @@ fn decode_commit(
             json.extend_from_slice(b",\"cid\":\"");
             cid_to_bytes(cid, json);
             json.push(b'"');
-            if let Some(block) = car.as_ref().and_then(|c| c.get(cid)) {
+            if let Some(block) = op.block {
                 let mark = json.len();
                 json.extend_from_slice(b",\"record\":");
                 // A record that fails to transcode is dropped, not the op.

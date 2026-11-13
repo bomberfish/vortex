@@ -20,8 +20,8 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
-use vortex_core::decode::car::Car;
-use vortex_core::decode::cbor::{cid_to_string, Reader};
+use vortex_core::decode::car::{for_each_block, Car};
+use vortex_core::decode::cbor::{cid_to_bytes, Reader};
 use vortex_core::decode::firehose::decode_firehose_frame;
 use vortex_core::decode::frame::decode_json_frame;
 use vortex_core::decode::Decoded;
@@ -146,8 +146,8 @@ fn commit_envelope(frame: &[u8]) -> Option<Commit<'_>> {
     let n = r.map().ok()??;
     let mut t = "";
     for _ in 0..n {
-        match r.key().ok()? {
-            "t" => t = r.str().ok()?.unwrap_or(""),
+        match r.key_bytes().ok()? {
+            b"t" => t = r.str().ok()?.unwrap_or(""),
             _ => r.skip().ok()?,
         }
     }
@@ -157,15 +157,15 @@ fn commit_envelope(frame: &[u8]) -> Option<Commit<'_>> {
     let n = r.map().ok()??;
     let mut c = Commit { blocks: &[], cids: Vec::new() };
     for _ in 0..n {
-        match r.key().ok()? {
-            "blocks" => c.blocks = r.bytes().ok()?.unwrap_or(&[]),
-            "ops" => {
+        match r.key_bytes().ok()? {
+            b"blocks" => c.blocks = r.bytes().ok()?.unwrap_or(&[]),
+            b"ops" => {
                 let count = r.array().ok()??;
                 for _ in 0..count {
                     let fields = r.map().ok()??;
                     for _ in 0..fields {
-                        match r.key().ok()? {
-                            "cid" => {
+                        match r.key_bytes().ok()? {
+                            b"cid" => {
                                 if let Some(cid) = r.cid().ok()? {
                                     c.cids.push(cid);
                                 }
@@ -249,41 +249,94 @@ fn bench(path: &str, runs: usize, skip: usize, limit: usize, only_total: bool) {
     let (d, commits) = best_of(runs, || frames.iter().filter_map(|f| commit_envelope(f)).collect::<Vec<_>>());
     line("cbor envelope walk", d);
 
-    // 2. CAR index.
-    let (d, cars) = best_of(runs, || commits.iter().map(|c| Car::parse(c.blocks).ok()).collect::<Vec<_>>());
-    line("car index", d);
-
-    // 3. Block lookup by CID.
+    // 2. CAR: one pass over the archive, matching the wanted CIDs on the
+    // way. This is what a commit with a handful of ops does.
     let (d, blocks) = best_of(runs, || {
         let mut blocks: Vec<&[u8]> = Vec::with_capacity(n);
-        for (c, car) in commits.iter().zip(&cars) {
-            let Some(car) = car else { continue };
-            for cid in &c.cids {
-                if let Some(b) = car.get(cid) {
-                    blocks.push(b);
+        for c in &commits {
+            let mark = blocks.len();
+            let walked = for_each_block(c.blocks, |cid, data| {
+                if c.cids.contains(&cid) {
+                    blocks.push(data);
                 }
+            });
+            if walked.is_err() {
+                blocks.truncate(mark);
             }
         }
         blocks
     });
-    line("car cid lookup", d);
+    line("car walk + match", d);
+
+    // 2b. The indexed form, used for commits with many ops.
+    let (d, cars) = best_of(runs, || commits.iter().map(|c| Car::parse(c.blocks).ok()).collect::<Vec<_>>());
+    line("car index (many ops)", d);
+    {
+        // Shape of the archives: how many blocks, and how far in the records sit.
+        let mut hist = [0usize; 6];
+        let (mut total, mut n_cars, mut depth_sum, mut found) = (0usize, 0usize, 0usize, 0usize);
+        for (c, car) in commits.iter().zip(&cars) {
+            let Some(car) = car else { continue };
+            n_cars += 1;
+            total += car.len();
+            hist[match car.len() {
+                0..=2 => 0,
+                3..=4 => 1,
+                5..=8 => 2,
+                9..=16 => 3,
+                17..=64 => 4,
+                _ => 5,
+            }] += 1;
+            for cid in &c.cids {
+                if let Some(i) = car.position(cid) {
+                    depth_sum += i + 1;
+                    found += 1;
+                }
+            }
+        }
+        println!(
+            "{:<34} {:.1} blocks/archive (<=2:{} <=4:{} <=8:{} <=16:{} <=64:{} more:{}), record is block {:.1} on average",
+            "",
+            total as f64 / n_cars.max(1) as f64,
+            hist[0],
+            hist[1],
+            hist[2],
+            hist[3],
+            hist[4],
+            hist[5],
+            depth_sum as f64 / found.max(1) as f64
+        );
+    }
+
+    // 2c. Lookup in that index.
+    let (d, _) = best_of(runs, || {
+        let mut found = 0usize;
+        for (c, car) in commits.iter().zip(&cars) {
+            let Some(car) = car else { continue };
+            for cid in &c.cids {
+                found += car.get(cid).is_some() as usize;
+            }
+        }
+        found
+    });
+    line("car index lookup (many ops)", d);
     let block_bytes: usize = blocks.iter().map(|b| b.len()).sum();
 
-    // 4. CID -> base32 string.
+    // 3. CID -> base32 string.
     let (d, _) = best_of(runs, || {
         let mut total = 0usize;
         for c in &commits {
             for cid in &c.cids {
-                json.clear();
-                cid_to_string(cid, &mut json);
-                total += json.len();
+                scratch.clear();
+                cid_to_bytes(cid, &mut scratch);
+                total += scratch.len();
             }
         }
         total
     });
     line("op cid -> base32", d);
 
-    // 5. Record CBOR -> JSON.
+    // 4. Record CBOR -> JSON.
     let (d, out_bytes) = best_of(runs, || {
         let mut total = 0usize;
         for blk in &blocks {
@@ -303,7 +356,7 @@ fn bench(path: &str, runs: usize, skip: usize, limit: usize, only_total: bool) {
         block_bytes as f64 / 1e6 / d.as_secs_f64()
     );
 
-    // 5b. The same walk without producing output (reader only).
+    // 4b. The same walk without producing output (reader only).
     let (d, _) = best_of(runs, || {
         for blk in &blocks {
             let _ = Reader::new(blk).skip();
@@ -311,7 +364,7 @@ fn bench(path: &str, runs: usize, skip: usize, limit: usize, only_total: bool) {
     });
     line("record cbor skip (no output)", d);
 
-    // 6. JSON extraction + event assembly over the transcoded text.
+    // 5. JSON extraction + event assembly over the transcoded text.
     let raws: Vec<&str> = events.iter().map(|e| e.raw()).collect();
     let (d, _) = best_of(runs, || {
         let mut out: Vec<Event> = Vec::with_capacity(n);

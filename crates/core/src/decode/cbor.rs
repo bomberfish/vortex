@@ -570,7 +570,19 @@ pub fn base64_unpadded_bytes(data: &[u8], out: &mut Vec<u8>) {
 }
 
 /// Read an unsigned LEB128 varint (as used by CAR and CIDs).
+#[inline]
 pub fn read_varint(buf: &[u8], pos: &mut usize) -> Result<u64> {
+    // One byte covers most CID fields and short block lengths.
+    if let Some(&b) = buf.get(*pos) {
+        if b < 0x80 {
+            *pos += 1;
+            return Ok(b as u64);
+        }
+    }
+    read_varint_long(buf, pos)
+}
+
+fn read_varint_long(buf: &[u8], pos: &mut usize) -> Result<u64> {
     let mut v = 0u64;
     let mut shift = 0;
     loop {
