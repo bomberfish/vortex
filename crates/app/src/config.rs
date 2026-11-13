@@ -385,4 +385,18 @@ mod tests {
         let st = b.to_store();
         assert_eq!((st.ring_events, st.ring_bytes, st.pinned_events), (1_000, 16 << 20, 7));
     }
+
+    /// The README's config reference must stay true: its defaults block is
+    /// exactly `Config::default()`, and its examples block is a valid config.
+    #[test]
+    fn readme_config_matches_defaults() {
+        let readme = include_str!("../../../README.md");
+        let blocks: Vec<&str> =
+            readme.split("```toml\n").skip(1).map(|rest| rest.split("```").next().unwrap()).collect();
+        assert_eq!(blocks.len(), 2, "expected a defaults block and an examples block");
+        assert_eq!(Config::parse(blocks[0]).unwrap(), Config::default());
+        let examples = Config::parse(blocks[1]).unwrap();
+        assert_eq!(examples.filter.saved.len(), 1);
+        assert!(examples.themes.contains_key("midnight"));
+    }
 }

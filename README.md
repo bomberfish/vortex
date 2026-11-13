@@ -1,34 +1,127 @@
 # vortex
 
-A fast, compact desktop viewer for AT Protocol event streams — Bluesky
-Jetstream and the relay firehose — with a real query language for filtering.
-Rust + [GPUI](https://gpui.rs).
+A fast, information-dense desktop command center for the AT Protocol: watch
+Bluesky's Jetstream or the relay firehose live, filter it with a real query
+language, and inspect any account or record the way
+[pdsls](https://pdsls.dev) does. Rust and [GPUI](https://gpui.rs).
 
+![The live event list with sidebar facets and a selected post's lookups](docs/screenshots/stream.png)
+
+- **Every source, one model.** Jetstream (v2 and legacy) and the raw relay
+  firehose (DAG-CBOR and CAR, decoded locally) all become the same events,
+  so every filter works everywhere.
+- **Filters that scale.** About 40 fields, regex, JSON paths, counts, time
+  ranges and sampling, compiled to an optimised matcher (5–35 ns per event)
+  and pushed to the server where possible. Changing a query re-filters
+  everything already buffered.
+- **Context on demand.** Selecting an event fetches the author, the post it
+  likes or replies to, and live counts. One key opens an inspector for the
+  repo, its collections, PLC history and backlinks.
+- **Built to stay out of the way.** Compact, keyboard-first, themeable, and
+  cheap to leave running: about 10% of one core while tailing the full
+  network, less when filtered.
+
+## Contents
+
+- [Quick start](#quick-start)
+- [A tour](#a-tour)
+- [Filter language](#filter-language)
+- [Keys](#keys)
+- [Configuration](#configuration)
+- [Headless tools](#headless-tools)
+- [How it works](#how-it-works)
+- [Development](#development)
+
+## Quick start
+
+```sh
+cargo run --release -p vortex
 ```
-cargo run --release -p vortex          # the app
-cargo run --release --bin vortex-tail -- 'type:post lang:ja has:media'   # headless
-cargo run --release --bin vortex-bench                                   # stage timings on live data
-```
 
-## Sources
+vortex is developed and tested on macOS (Apple Silicon) with a recent Rust
+toolchain (currently 1.98 nightly; the workspace uses edition 2021). GPUI's
+Linux backends are compiled in, but vortex has not been tested on Linux.
 
-| source | endpoint | notes |
-| --- | --- | --- |
-| `jetstream` (default) | `network.bsky.jetstream.subscribeEvents` | JSON, dictionary-zstd, server-side filtering, replay by cursor |
-| `jetstream-v1` | legacy `/subscribe` | same, older wire format |
-| `firehose` | `com.atproto.sync.subscribeRepos` | DAG-CBOR + CAR, decoded locally; unfiltered, live only |
+On first launch vortex connects to Jetstream and opens the welcome screen.
+Press `esc` to go to the event list, `⌘P` to find any command, or `?` for
+the filter syntax and keys. Settings live in `~/.config/vortex/config.toml`
+and can be edited while the app runs.
 
-All three decode into the same event model, so every filter works on every
-source. Connections reconnect with jittered backoff, resume from the last
-processed cursor, and fail over between hosts.
+## A tour
 
-## Filtering
+### Welcome
 
-Type in the filter bar (`/`). Terms are ANDed; `OR`, `-term`/`NOT`, and
-parentheses work as expected. Errors are underlined as you type. Field names
-and their values autocomplete (`tab` inserts, `↑` `↓` choose), including
-collections seen in the stream. Hover any label, number or button for what it
-means and its key.
+![Welcome screen with the animated hurricane logo](docs/screenshots/welcome.png)
+
+Common starting points: watch the stream, replay the last five minutes,
+switch to the relay firehose, or inspect an account. Turn it off with the
+"show on launch" checkbox, or **welcome on launch** in settings.
+
+### The stream
+
+The **top bar** is the connection (click to connect or disconnect), the
+source (`jetstream`, `v1`, `firehose`), where to start (`live`, or replay the
+last `1m` `5m` `30m` `2h`), and the `zstd` and `srv` (server filter)
+switches. On the right are events/s received and matching, bandwidth, lag,
+pipeline load, the buffer (events, memory, time span) and a rate sparkline.
+Hover any of them for an explanation.
+
+The **sidebar** counts the buffer by kind and collection. With a filter
+active it shows both matching and seen counts. Click to add a term to the
+query, alt-click to exclude it, right-click a collection to pin or unpin it.
+Pinned collections stay at the top in a fixed order.
+
+The **list** shows time, operation (`+` create, `~` update, `-` delete, `@`
+identity, `!` account), type, author, marks (reply, quote, images, video,
+link) and text. Tail mode (`space`) follows new events. Scrolling up pauses
+it, and `r` jumps back to the selected row.
+
+The **detail pane** shows the event and its raw JSON. It also looks up
+context once the selection settles: the author's profile, follower counts
+and PDS, the post being liked, reposted, replied to or quoted (with its
+counts), the account being followed or blocked, and a post's own like,
+repost, reply and quote counts. Click any of them to inspect it.
+
+### Inspector
+
+![Inspecting a record: CID, counts, JSON with clickable references, backlinks](docs/screenshots/inspector-record.png)
+
+Press `i` on an event, click a looked-up account or post, or paste anything
+into `⌘P`: a handle, DID, `at://` URI, bsky.app link or pdsls link.
+
+- **Repos** show handle, DID, PDS, aliases, signing key and profile, with
+  tabs for collections, PLC history and backlinks. History is summarised as
+  changes, such as "handle @a → @b" or a PDS migration.
+- **Collections** list records 100 at a time, with "load more".
+- **Records** show CID, like/repost/reply/quote counts, the JSON (any line
+  holding an `at://` URI or DID is a link) and backlinks from
+  [constellation](https://constellation.microcosm.blue).
+
+`⌘[` `⌘]` go back and forward, `⌘↑` goes up a level, the breadcrumbs are
+clickable, and `esc` returns to the stream. **filter** limits the stream to
+that account, and **pdsls** opens the same page on pdsls.dev.
+
+![A repo's identity and PLC history](docs/screenshots/inspector-repo.png)
+
+Lookups are read-only and go to the public AppView (`public.api.bsky.app`),
+`plc.directory`, the account's own PDS, and constellation. Results are cached
+for the session.
+
+### Command palette and menus
+
+![The command palette](docs/screenshots/palette.png)
+
+`⌘P` lists every command: connect, sources, replay, panes, toggles, themes,
+saved filters, settings and config. Type to narrow the list. Paste a handle,
+DID or link and the first entry inspects it. The same commands are in the
+macOS menu bar, which shows each one's shortcut.
+
+## Filter language
+
+Type in the filter bar (`/`). Terms are ANDed; `OR`, `-term` or `NOT`, and
+parentheses work as usual. Errors are underlined as you type. Field names and
+their values autocomplete: `tab` inserts and `↑` `↓` choose, and the
+suggestions include collections seen in the stream.
 
 ```
 type:post lang:en has:media -is:reply
@@ -40,7 +133,7 @@ record.embed.$type:video        record.facets[*].features[*].tag:art
 did:@~/watchlist.txt            sample:5%
 ```
 
-| | |
+| field | meaning |
 | --- | --- |
 | `word` `"a phrase"` | text contains (case-insensitive) |
 | `text:` `name:` `alt:` | post text / display name / image alt |
@@ -59,63 +152,44 @@ did:@~/watchlist.txt            sample:5%
 | `sample:` | keep a deterministic fraction: `sample:10%` |
 
 Operators: `:` match · `=` exact · `~` regex · `!=` `!~` negated · `>` `>=`
-`<` `<=` numeric · `a,b` any-of · `/re/flags` regex literal · `*` glob.
-
-Clicking a kind or collection in the sidebar toggles it in the query
-(alt-click excludes). Common collections are pinned to the top with live
-counts; right-click any collection to pin or unpin it (`filter.pinned` in the
-config). `+` saves the current query.
+`<` `<=` numeric · `a,b` any of · `/re/flags` regex literal · `*` glob.
 
 **Changing the filter re-filters everything already buffered**, not just new
 events. With `srv` on, the part of the query the server can evaluate (kinds,
-collections, DIDs) is pushed down to Jetstream, so a narrow query costs almost
-no bandwidth; turn it off to keep the full stream buffered for later queries.
-
-## Command center
-
-- **Welcome** (on launch; `ui.welcome = false` to skip): connect, replay,
-  firehose, inspect, settings.
-- **Command palette** (`⌘P`): every command by name; paste a handle, DID,
-  `at://` URI, bsky.app or pdsls link to inspect it.
-- **Detail lookups**: selecting an event fetches the author's profile and PDS,
-  the post it likes/reposts/replies to/quotes (with counts), the account it
-  follows/blocks, and the post's own counts. Click any of them to inspect.
-- **Inspector** (`i`): a pdsls-style browser. Repo: handle, DID, PDS, aliases,
-  signing key, profile, collections, PLC history (handle/PDS changes), and
-  backlinks. Collections page through records; records show CID, counts, JSON
-  with clickable references, and backlinks. `⌘[` `⌘]` back/forward, `⌘↑` up,
-  `esc` back to the stream.
-
-- **Menus** (macOS menu bar): vortex, Edit, View, Stream (source, replay),
-  Go (inspector), Window, Help — shortcuts shown match the key bindings.
-
-Lookups are read-only and go to the public AppView (`public.api.bsky.app`),
-`plc.directory`, the account's own PDS, and constellation
-(`constellation.microcosm.blue`) for backlinks.
+collections, DIDs) is sent to Jetstream, so a narrow query costs almost no
+bandwidth. Turn it off to keep the whole stream buffered for later queries.
+`+` in the sidebar saves the current query.
 
 ## Keys
 
-| | |
+| keys | action |
 | --- | --- |
-| `/` `⌘F` | focus filter (`enter` apply, `esc` back) |
-| `j` `k` `↑` `↓` `g` `G` `pgup` `pgdn` | move selection |
-| `space` | tail on/off |
-| `c` `u` `o` | copy JSON / copy AT-URI / open in browser |
-| `p` | open the record (or repo) on pdsls.dev |
-| `i` | inspect the selected record / repo |
-| `⌘P` | command palette |
-| `r` | scroll the list back to the selected event (`row` in the detail pane) |
-| `⌘K` | clear buffer |
-| `⌘B` `⌘I` | sidebar / detail pane |
-| `⌘T` `⌘⇧T` `⌘=` `⌘-` | next / previous theme, font size |
-| `⌘,` `?` | settings / filter help (toggle) |
+| `/` `⌘F` `⌘L` | focus the filter (`enter` applies, `tab` completes, `esc` leaves) |
+| `j` `k` `↑` `↓` | move the selection |
+| `g` `G` `home` `end` `pgup` `pgdn` `ctrl-u` `ctrl-d` | jump, page |
+| `space` `f` | tail on/off |
+| `r` | scroll back to the selected row |
+| `i` | inspect the selected record or repo |
+| `c` `u` | copy event JSON / AT-URI |
+| `o` `↵` | open on bsky.app (pdsls for other records) |
+| `p` | open on pdsls.dev |
+| `esc` | close help, settings, inspector or welcome; then deselect |
+| `⌘P` `⌘⇧P` | command palette |
+| `⌘[` `⌘]` `⌘↑` | inspector back / forward / up |
 | `⌘↵` | connect / disconnect |
+| `⌘K` | clear the buffer |
+| `⌘B` `⌘I` | toggle sidebar / detail pane |
+| `⌘T` `⌘⇧T` | next / previous theme (right-click the welcome theme row too) |
+| `⌘=` `⌘-` | font size |
+| `⌘,` `?` | settings / filter syntax and keys |
+| `⌘H` `⌥⌘H` `⌘M` `⌃⌘F` `⌘Q` | hide, hide others, minimise, full screen, quit |
 
 ## Configuration
 
-`~/.config/vortex/config.toml` (or `$XDG_CONFIG_HOME/vortex/config.toml`).
-Edits are picked up while the app runs; changes made in the UI are written
-back. A file with a syntax error is reported and never overwritten.
+`~/.config/vortex/config.toml`, or `$XDG_CONFIG_HOME/vortex/config.toml`.
+Edits are picked up while the app runs, and changes made in the UI are
+written back. A file with a syntax error is reported in the status bar and
+never overwritten. Every key is optional; these are the defaults.
 
 ```toml
 [ui]
@@ -127,24 +201,28 @@ line_height = 1.4
 padding = 4.0
 radius = 2.0
 square_corners = false     # macOS: square window corners
-fps_meter = true           # frames/s and frame build time in the status bar
+fps_meter = true           # frames/s and CPU time per frame in the status bar
 welcome = true             # welcome screen on launch
-
-[colors]                   # override any slot of the active theme
-accent = "#ff8800"
-
-[themes.midnight]          # or define your own (then ui.theme = "midnight")
-base = "nord"
-bg = "#0b0e14"
+sidebar = true
+sidebar_width = 220.0
+detail = true
+detail_width = 440.0
 
 [source]
 kind = "jetstream"         # jetstream | jetstream-v1 | firehose
 hosts = []                 # empty = public defaults; "ws://localhost:6008" works
-compress = true
-pushdown = true
+compress = true            # zstd
+pushdown = true            # send the server-side part of the query
+autoconnect = true
 
 [filter]
-pinned = ["app.bsky.feed.post", "app.bsky.feed.like"]   # sidebar order
+query = ""                 # restored on launch
+pinned = [                 # sidebar order
+  "app.bsky.feed.post", "app.bsky.feed.like", "app.bsky.feed.repost",
+  "app.bsky.graph.follow", "app.bsky.graph.block", "app.bsky.actor.profile",
+  "app.bsky.graph.list", "app.bsky.graph.listitem", "app.bsky.graph.starterpack",
+  "app.bsky.feed.generator", "app.bsky.feed.threadgate", "app.bsky.feed.postgate",
+]
 
 [buffer]
 events = 300000            # kept for instant re-filtering
@@ -152,10 +230,43 @@ megabytes = 512
 pinned = 100000            # matches kept after they age out of the buffer
 ```
 
-Color slots: `bg bg_alt bg_hover bg_sel border fg fg_dim fg_faint accent red
-green yellow blue purple aqua orange`.
+Colors, themes and saved queries have no defaults to show; add them like
+this:
 
-## Architecture
+```toml
+[colors]                   # override any slot of the active theme
+accent = "#ff8800"
+
+[themes.midnight]          # define your own, then set ui.theme = "midnight"
+base = "nord"
+bg = "#0b0e14"
+
+[[filter.saved]]           # one block per saved query (the sidebar's + adds these)
+name = "japanese art"
+query = "type:post lang:ja tag:art"
+```
+
+Color slots: `bg bg_alt bg_hover bg_sel border fg fg_dim fg_faint accent red
+green yellow blue purple aqua orange`. Most `[ui]` settings are also in the
+settings panel (`⌘,`).
+
+## Headless tools
+
+```sh
+# Stream to the terminal with the same filter language
+cargo run --release --bin vortex-tail -- 'type:post lang:ja has:media'
+#   [--source jetstream|jetstream-v1|firehose] [--host H] [--rewind 5m]
+#   [--cursor N] [--no-compress] [--no-pushdown] [--secs N] [--print N] [--json]
+
+# Stage timings on live Jetstream traffic
+cargo run --release --bin vortex-bench
+
+# Record relay frames once, then benchmark firehose decoding offline
+cargo run --release --bin vortex-bench-firehose -- capture target/firehose.capture
+cargo run --release --bin vortex-bench-firehose -- bench target/firehose.capture
+```
+
+## How it works
 
 ```
  net thread (tokio, current-thread)       pipeline thread (+ rayon on bursts)
@@ -169,28 +280,35 @@ green yellow blue purple aqua orange`.
 ```
 
 - **`crates/core`** has no UI dependency and is fully testable headless.
-- **Network** only moves bytes. Frames cross a bounded channel, so a slow
-  consumer back-pressures the socket instead of growing memory.
+- **Network** only moves bytes. Connections reconnect with jittered backoff,
+  resume from the last processed cursor, and fail over between hosts. Frames
+  cross a bounded channel, so a slow consumer back-pressures the socket
+  instead of growing memory.
 - **Pipeline** drains the channel in adaptive batches: a few frames at
   live-tail rates (one thread hop of latency), thousands during replay, where
   decode fans out over rayon with order preserved. The store lock is taken
-  once per batch and the filter is evaluated outside it.
+  once per batch and the filter runs outside it.
 - **Events** are a fixed 168-byte header plus one allocation holding the raw
   JSON and every extracted field. `did:plc` identifiers are packed to 15
-  bytes; collections are interned pointers. Filters read pre-extracted data —
-  nothing is re-parsed unless a JSON-path predicate asks.
+  bytes; collections are interned pointers. Filters read pre-extracted data,
+  and nothing is re-parsed unless a JSON-path predicate asks.
 - **Decoding** uses a purpose-built zero-allocation JSON pull scanner. The
-  firehose path transcodes DAG-CBOR/CAR into the Jetstream JSON shape so there
-  is exactly one extraction path.
-- **Filters** compile to a small tree that is optimized before use: OR'd
-  text literals merge into one Aho-Corasick automaton, DID lists into a hash
-  set, kind/flag tests into single mask checks, and children are ordered
-  cheapest-first.
-- **Store** keeps every recent event (so a new filter can be applied to
-  history, in parallel) plus matches that have aged out of that window.
-- **UI** polls version counters at 30 Hz and renders only when something
-  changed; rendering takes the store lock with a 2 ms budget and reuses the
-  previous frame's rows if ingest or a re-filter holds it.
+  firehose path transcodes DAG-CBOR and CAR into the Jetstream JSON shape in
+  one byte-oriented pass, so there is exactly one extraction path.
+- **Filters** compile to a small tree that is optimised before use: OR'd text
+  literals merge into one Aho-Corasick automaton, DID lists into a hash set,
+  kind and flag tests into single mask checks, and children are ordered
+  cheapest first.
+- **Store** keeps every recent event (so a new filter applies to history, in
+  parallel) plus matches that have aged out of that window.
+- **UI** checks version counters at 30 Hz and redraws only when what is on
+  screen changed. A narrow filter that matched nothing new costs nothing, and
+  nothing redraws behind the welcome screen or inspector. Rendering never
+  waits on the store: if ingest holds it, the previous frame's rows are
+  reused. Text is cut to the visible column width before shaping, and long
+  inspector pages are virtualised.
+- **Lookups** (`crates/app/src/atp.rs`) are a small read-only AT Protocol
+  client on background threads, with a session cache.
 
 ### Numbers
 
@@ -207,7 +325,7 @@ noted):
 | 10 min replay (214k events) end to end | ~2.5 s, network-bound |
 
 `vortex-bench-firehose` on 150k captured relay frames (5.5 KB per frame,
-Apple Silicon, one thread; `capture FILE` then `bench FILE`):
+Apple Silicon, one thread):
 
 | stage | cost |
 | --- | --- |
@@ -218,15 +336,40 @@ Apple Silicon, one thread; `capture FILE` then `bench FILE`):
 | JSON extract + event build | ~0.41 µs/event |
 
 The live network is a few hundred events per second; the headroom is for
-replay and for re-filtering large buffers interactively.
+replay and for re-filtering large buffers interactively. The app itself
+(release build, full network, list tailing) uses about 10% of one core.
 
-## Notes
+## Development
 
-- The bundled default font (`assets/fonts/Berkeley.ttf`) is Berkeley Mono, a
-  commercially licensed typeface. Keep the repository private, or replace the
-  file and `BUNDLED_FONT` in `crates/app/src/config.rs`, before publishing.
-- The text input is adapted from GPUI's `examples/input.rs` (Apache-2.0).
-- Jetstream zstd dictionaries in `assets/dict/` come from
-  [bluesky-social/jetstream](https://github.com/bluesky-social/jetstream)
-  (MIT/Apache-2.0). If a server retires the bundled dictionary, the current
-  one is fetched automatically.
+```
+crates/core   vortex-core: decode, filter, store, pipeline, net (no UI)
+crates/app    vortex: GPUI app (ui/, atp.rs lookups, config, themes)
+assets/       zstd dictionaries, bundled font
+docs/         screenshots
+```
+
+```sh
+cargo test --workspace                                # unit, property and differential tests
+cargo test -p vortex -- --ignored live_lookups        # hits the real AppView/PLC/PDS/constellation
+VORTEX_FIREHOSE_CAPTURE=target/firehose.capture \
+  cargo test --release -p vortex-core differential_capture   # new vs. reference firehose decoder
+cargo fmt                                             # rustfmt.toml: width 120
+```
+
+Debug builds accept `VORTEX_DEBUG` to put the UI into a state a few seconds
+after launch, for screenshots and visual checks without driving the mouse or
+keyboard:
+
+| value | effect |
+| --- | --- |
+| `select` | select a recent post (closes the welcome screen) |
+| `settings` | open settings |
+| `inspect:<handle, DID or at:// URI>[#history\|#backlinks]` | open the inspector |
+| `palette:<text>` | open the palette with text |
+| `complete`, `complete-accept` | filter autocomplete popup |
+| `badfilter` | a query with errors |
+| `icons`, `tips` | the icon set at several sizes; tooltip layout samples |
+
+The status bar's fps meter shows frames drawn per second and CPU time per
+frame, covering building, layout and paint. vortex only redraws when
+something changes, so expect at most 30 frames/s while streaming.

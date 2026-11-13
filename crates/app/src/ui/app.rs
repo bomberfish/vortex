@@ -490,6 +490,7 @@ impl Vortex {
                     (0..view.len()).rev().filter_map(|i| view.row(i)).find(|e| e.text().len() > 40).map(|e| e.id)
                 };
                 self.follow = false;
+                self.show_welcome = false;
                 self.select(id, cx);
             }
             Ok("settings") => self.show_settings = true,
