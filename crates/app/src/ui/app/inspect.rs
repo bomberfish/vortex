@@ -28,7 +28,14 @@ pub(super) struct Inspector {
 
 impl Inspector {
     fn new(target: AtTarget) -> Self {
-        Inspector { target, back: Vec::new(), forward: Vec::new(), tab: RepoTab::Collections, pages: Vec::new(), record_lines: None }
+        Inspector {
+            target,
+            back: Vec::new(),
+            forward: Vec::new(),
+            tab: RepoTab::Collections,
+            pages: Vec::new(),
+            record_lines: None,
+        }
     }
 }
 
@@ -167,16 +174,27 @@ impl Vortex {
                     c.get_record(id.pds.as_deref().ok_or("no PDS in DID document")?, &id.did, &cl, &rk)
                 });
                 let (r, cl, rk) = (repo.clone(), coll.clone(), rkey.clone());
-                self.request(key_links(&t.uri()), cx, move |c| c.backlinks(&format!("at://{}/{cl}/{rk}", c.resolve(&r)?)));
+                self.request(key_links(&t.uri()), cx, move |c| {
+                    c.backlinks(&format!("at://{}/{cl}/{rk}", c.resolve(&r)?))
+                });
                 if coll == "app.bsky.feed.post" {
                     let (r, rk) = (repo, rkey.clone());
-                    self.request(format!("postview:{}", t.uri()), cx, move |c| c.post(&format!("at://{}/app.bsky.feed.post/{rk}", c.resolve(&r)?)));
+                    self.request(format!("postview:{}", t.uri()), cx, move |c| {
+                        c.post(&format!("at://{}/app.bsky.feed.post/{rk}", c.resolve(&r)?))
+                    });
                 }
             }
         }
     }
 
-    fn request_page(&mut self, key: String, repo: String, coll: String, cursor: Option<String>, cx: &mut Context<Self>) {
+    fn request_page(
+        &mut self,
+        key: String,
+        repo: String,
+        coll: String,
+        cursor: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         self.request(key, cx, move |c| {
             let id = c.identity(&repo)?;
             c.list_records(id.pds.as_deref().ok_or("no PDS in DID document")?, &id.did, &coll, cursor.as_deref())
@@ -248,7 +266,13 @@ impl Vortex {
                 .when(enabled, |d| d.cursor_pointer().hover(move |s| s.bg(hover)))
                 .child(label)
         };
-        let mut crumbs = div().flex().flex_1().min_w_0().items_center().overflow_hidden().child(div().text_color(t.fg_faint).child("at://"));
+        let mut crumbs = div()
+            .flex()
+            .flex_1()
+            .min_w_0()
+            .items_center()
+            .overflow_hidden()
+            .child(div().text_color(t.fg_faint).child("at://"));
         let repo_t = AtTarget::repo(target.repo.clone());
         crumbs = crumbs.child(
             div()
@@ -270,16 +294,24 @@ impl Vortex {
                     .text_color(t.hue(coll))
                     .hover(move |s| s.bg(hover))
                     .child(coll.clone())
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| this.inspect(coll_t.clone(), cx))),
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| this.inspect(coll_t.clone(), cx)),
+                    ),
             );
         }
         if let Some(rkey) = &target.rkey {
-            crumbs = crumbs.child(div().text_color(t.fg_faint).child("/")).child(div().flex_none().text_color(t.fg).child(rkey.clone()));
+            crumbs = crumbs
+                .child(div().text_color(t.fg_faint).child("/"))
+                .child(div().flex_none().text_color(t.fg).child(rkey.clone()));
         }
 
         let uri = target.uri();
         let did = self.repo_did(&target.repo);
-        let pdsls = format!("https://pdsls.dev/{}", did.as_ref().map(|d| uri.replacen(&target.repo, d, 1)).unwrap_or(uri.clone()));
+        let pdsls = format!(
+            "https://pdsls.dev/{}",
+            did.as_ref().map(|d| uri.replacen(&target.repo, d, 1)).unwrap_or(uri.clone())
+        );
         let filter_did = did.clone();
         let nav = div()
             .flex()
@@ -330,15 +362,13 @@ impl Vortex {
                     .tooltip(tip("open on pdsls.dev", None, None))
                     .on_mouse_down(MouseButton::Left, cx.listener(move |_, _, _, cx| cx.open_url(&pdsls))),
             )
-            .child(
-                self.chip("copy", false, t)
-                    .id("i-copy")
-                    .tooltip(tip("copy the AT-URI", None, None))
-                    .on_mouse_down(MouseButton::Left, {
-                        let uri = uri.clone();
-                        cx.listener(move |_, _, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(uri.clone())))
-                    }),
-            )
+            .child(self.chip("copy", false, t).id("i-copy").tooltip(tip("copy the AT-URI", None, None)).on_mouse_down(
+                MouseButton::Left,
+                {
+                    let uri = uri.clone();
+                    cx.listener(move |_, _, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(uri.clone())))
+                },
+            ))
             .child(
                 self.chip("✕", false, t)
                     .id("i-close")
@@ -351,14 +381,18 @@ impl Vortex {
             (Some(_), None) => self.render_collection_page(i, t, cx),
             (Some(_), Some(_)) => self.render_record_page(i, t, cx),
         };
-        div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .child(nav)
-            .child(div().id("inspect-body").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().p(t.pad).gap(px(1.)).child(body))
+        div().flex().flex_col().flex_1().min_w_0().h_full().child(nav).child(
+            div()
+                .id("inspect-body")
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .p(t.pad)
+                .gap(px(1.))
+                .child(body),
+        )
     }
 
     fn status_line(&self, key: &str, what: &str, t: &Theme) -> Option<Div> {
@@ -372,7 +406,11 @@ impl Vortex {
     fn render_repo_page(&self, i: &Inspector, t: &Theme, cx: &mut Context<Self>) -> Div {
         let repo = &i.target.repo;
         let kv = |k: &'static str, v: String, color: Hsla, t: &Theme| {
-            div().flex().gap(t.ch).child(div().flex_none().w(t.ch * 10.).text_color(t.fg_faint).child(k)).child(div().min_w_0().truncate().text_color(color).child(v))
+            div()
+                .flex()
+                .gap(t.ch)
+                .child(div().flex_none().w(t.ch * 10.).text_color(t.fg_faint).child(k))
+                .child(div().min_w_0().truncate().text_color(color).child(v))
         };
         let mut out = div().flex().flex_col().gap(px(1.));
         let ident_key = format!("ident:{repo}");
@@ -389,7 +427,13 @@ impl Vortex {
                 ))
                 .child(kv(
                     "key",
-                    id["keys"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join("  "),
+                    id["keys"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join("  "),
                     t.fg_faint,
                     t,
                 ));
@@ -402,7 +446,12 @@ impl Vortex {
                 .child(kv("name", p["displayName"].as_str().unwrap_or("").to_owned(), t.fg, t))
                 .child(kv(
                     "profile",
-                    format!("{} followers · {} following · {} posts", n("followersCount"), n("followsCount"), n("postsCount")),
+                    format!(
+                        "{} followers · {} following · {} posts",
+                        n("followersCount"),
+                        n("followsCount"),
+                        n("postsCount")
+                    ),
                     t.fg_dim,
                     t,
                 ))
@@ -429,9 +478,27 @@ impl Vortex {
                 .gap(t.pad)
                 .pt(t.pad)
                 .pb(t.pad * 0.5)
-                .child(tab_chip(format!("collections {}", collections.len()), RepoTab::Collections, "record types in this repo", t, cx))
-                .child(tab_chip("history".into(), RepoTab::History, "PLC operations: handle, PDS and key changes", t, cx))
-                .child(tab_chip("backlinks".into(), RepoTab::Backlinks, "records elsewhere that reference this account (constellation)", t, cx)),
+                .child(tab_chip(
+                    format!("collections {}", collections.len()),
+                    RepoTab::Collections,
+                    "record types in this repo",
+                    t,
+                    cx,
+                ))
+                .child(tab_chip(
+                    "history".into(),
+                    RepoTab::History,
+                    "PLC operations: handle, PDS and key changes",
+                    t,
+                    cx,
+                ))
+                .child(tab_chip(
+                    "backlinks".into(),
+                    RepoTab::Backlinks,
+                    "records elsewhere that reference this account (constellation)",
+                    t,
+                    cx,
+                )),
         );
 
         match i.tab {
@@ -441,7 +508,13 @@ impl Vortex {
                 }
                 for (n, coll) in collections.into_iter().enumerate() {
                     let target = AtTarget { repo: repo.clone(), collection: Some(coll.clone()), rkey: None };
-                    out = out.child(self.link_row(("coll", n), div().text_color(t.hue(&coll)).child(coll.clone()), target, t, cx));
+                    out = out.child(self.link_row(
+                        ("coll", n),
+                        div().text_color(t.hue(&coll)).child(coll.clone()),
+                        target,
+                        t,
+                        cx,
+                    ));
                 }
             }
             RepoTab::History => {
@@ -453,8 +526,17 @@ impl Vortex {
                     for entry in log.iter() {
                         let op = &entry["operation"];
                         let when = entry["createdAt"].as_str().unwrap_or("").replace('T', " ");
-                        let handle = op["alsoKnownAs"][0].as_str().or(op["handle"].as_str()).unwrap_or("").trim_start_matches("at://").to_owned();
-                        let pds = op["services"]["atproto_pds"]["endpoint"].as_str().or(op["service"].as_str()).unwrap_or("").to_owned();
+                        let handle = op["alsoKnownAs"][0]
+                            .as_str()
+                            .or(op["handle"].as_str())
+                            .unwrap_or("")
+                            .trim_start_matches("at://")
+                            .to_owned();
+                        let pds = op["services"]["atproto_pds"]["endpoint"]
+                            .as_str()
+                            .or(op["service"].as_str())
+                            .unwrap_or("")
+                            .to_owned();
                         let mut what = Vec::new();
                         match &prev {
                             None => what.push(format!("created as @{handle} on {pds}")),
@@ -478,13 +560,23 @@ impl Vortex {
                             div()
                                 .flex()
                                 .gap(t.ch)
-                                .child(div().flex_none().w(t.ch * 24.).text_color(t.fg_faint).child(when[..when.len().min(23)].to_owned()))
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .w(t.ch * 24.)
+                                        .text_color(t.fg_faint)
+                                        .child(when[..when.len().min(23)].to_owned()),
+                                )
                                 .child(
                                     div()
                                         .min_w_0()
                                         .truncate()
                                         .text_color(if nullified { t.fg_faint } else { t.fg })
-                                        .child(format!("{}{}", what.join(" · "), if nullified { "  (nullified)" } else { "" })),
+                                        .child(format!(
+                                            "{}{}",
+                                            what.join(" · "),
+                                            if nullified { "  (nullified)" } else { "" }
+                                        )),
                                 ),
                         );
                         prev = Some((handle, pds));
@@ -544,7 +636,13 @@ impl Vortex {
                     .gap(t.ch)
                     .min_w_0()
                     .child(div().flex_none().w(t.ch * 15.).text_color(t.fg_dim).child(rkey))
-                    .child(div().flex_none().w(t.ch * 17.).text_color(t.fg_faint).child(when[..when.len().min(16)].to_owned()))
+                    .child(
+                        div()
+                            .flex_none()
+                            .w(t.ch * 17.)
+                            .text_color(t.fg_faint)
+                            .child(when[..when.len().min(16)].to_owned()),
+                    )
                     .child(div().flex_1().min_w_0().truncate().text_color(t.fg).child(preview));
                 out = out.child(self.link_row(("rec", n), row, target, t, cx));
                 n += 1;
@@ -552,19 +650,13 @@ impl Vortex {
         }
         let more = i.pages.last().and_then(|k| self.lookup_ok(k)).and_then(|v| v["cursor"].as_str()).is_some();
         out = out.child(
-            div()
-                .flex()
-                .gap(t.ch)
-                .pt(t.pad)
-                .text_color(t.fg_faint)
-                .child(format!("{total} records"))
-                .when(more, |d| {
-                    d.child(
-                        self.chip("load 100 more", false, t)
-                            .id("i-more")
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.load_more(cx))),
-                    )
-                }),
+            div().flex().gap(t.ch).pt(t.pad).text_color(t.fg_faint).child(format!("{total} records")).when(more, |d| {
+                d.child(
+                    self.chip("load 100 more", false, t)
+                        .id("i-more")
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.load_more(cx))),
+                )
+            }),
         );
         out
     }
@@ -577,7 +669,9 @@ impl Vortex {
             out = out.child(s);
         }
         if let Some(v) = self.lookup_ok(&key) {
-            out = out.child(div().text_color(t.fg_faint).truncate().child(format!("cid {}", v["cid"].as_str().unwrap_or("–"))));
+            out = out.child(
+                div().text_color(t.fg_faint).truncate().child(format!("cid {}", v["cid"].as_str().unwrap_or("–"))),
+            );
         }
         if let Some(p) = self.lookup_ok(&format!("postview:{uri}")) {
             let n = |k: &str| fmt_count(p[k].as_u64().unwrap_or(0));
@@ -611,7 +705,14 @@ impl Vortex {
     }
 
     /// A clickable row that navigates the inspector.
-    fn link_row(&self, id: impl Into<ElementId>, content: Div, target: AtTarget, t: &Theme, cx: &mut Context<Self>) -> Div {
+    fn link_row(
+        &self,
+        id: impl Into<ElementId>,
+        content: Div,
+        target: AtTarget,
+        t: &Theme,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let hover = t.bg_hover;
         div().child(
             content
@@ -658,7 +759,10 @@ mod tests {
             link_in_line(r#"    "uri": "at://did:plc:abc12345/app.bsky.feed.post/3k","#).map(|t| t.uri()).as_deref(),
             Some("at://did:plc:abc12345/app.bsky.feed.post/3k")
         );
-        assert_eq!(link_in_line(r#"  "subject": "did:plc:abc12345""#).map(|t| t.uri()).as_deref(), Some("at://did:plc:abc12345"));
+        assert_eq!(
+            link_in_line(r#"  "subject": "did:plc:abc12345""#).map(|t| t.uri()).as_deref(),
+            Some("at://did:plc:abc12345")
+        );
         assert!(link_in_line(r#"  "text": "hello""#).is_none());
         let v: Value = serde_json::from_str(r#"{"subject":{"uri":"at://x/y/z"}}"#).unwrap();
         assert_eq!(record_preview(&v), "→ at://x/y/z");

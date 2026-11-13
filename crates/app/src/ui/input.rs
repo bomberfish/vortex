@@ -417,11 +417,7 @@ impl TextInput {
     }
 
     fn previous_boundary(&self, offset: usize) -> usize {
-        self.content
-            .grapheme_indices(true)
-            .rev()
-            .find_map(|(idx, _)| (idx < offset).then_some(idx))
-            .unwrap_or(0)
+        self.content.grapheme_indices(true).rev().find_map(|(idx, _)| (idx < offset).then_some(idx)).unwrap_or(0)
     }
 
     fn next_boundary(&self, offset: usize) -> usize {
@@ -708,7 +704,10 @@ impl Element for TextElement {
         let x = |index: usize| bounds.left() + line.x_for_index(index) - scroll_x;
         let (selection, cursor) = if selected_range.is_empty() {
             let quad = fill(
-                Bounds::new(point(bounds.left() + cursor_pos - scroll_x, bounds.top()), size(px(1.5), bounds.size.height)),
+                Bounds::new(
+                    point(bounds.left() + cursor_pos - scroll_x, bounds.top()),
+                    size(px(1.5), bounds.size.height),
+                ),
                 accent,
             );
             (None, Some(quad))

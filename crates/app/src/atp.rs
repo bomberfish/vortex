@@ -147,7 +147,8 @@ impl Client {
         }
         let mut res = req.call().map_err(|e| short_err(&e.to_string()))?;
         let status = res.status().as_u16();
-        let body: Value = res.body_mut().read_json().map_err(|e| format!("HTTP {status}: {}", short_err(&e.to_string())))?;
+        let body: Value =
+            res.body_mut().read_json().map_err(|e| format!("HTTP {status}: {}", short_err(&e.to_string())))?;
         if status >= 400 {
             let msg = body.get("message").and_then(Value::as_str).or_else(|| body.get("error").and_then(Value::as_str));
             return Err(match msg {
@@ -229,7 +230,12 @@ impl Client {
     }
 
     pub fn get_record(&self, pds: &str, did: &str, collection: &str, rkey: &str) -> Res<Json> {
-        self.get(pds, "/xrpc/com.atproto.repo.getRecord", &[("repo", did), ("collection", collection), ("rkey", rkey)], true)
+        self.get(
+            pds,
+            "/xrpc/com.atproto.repo.getRecord",
+            &[("repo", did), ("collection", collection), ("rkey", rkey)],
+            true,
+        )
     }
 
     pub fn plc_log(&self, did: &str) -> Res<Json> {

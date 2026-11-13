@@ -67,14 +67,17 @@ impl Vortex {
         let r = repo.to_owned();
         self.request(format!("ident:{repo}"), cx, move |c| {
             let id = c.identity(&r)?;
-            let aka: Vec<&str> = id.doc["alsoKnownAs"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+            let aka: Vec<&str> =
+                id.doc["alsoKnownAs"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
             let keys: Vec<&str> = id.doc["verificationMethod"]
                 .as_array()
                 .into_iter()
                 .flatten()
                 .filter_map(|k| k["publicKeyMultibase"].as_str())
                 .collect();
-            Ok(Arc::new(serde_json::json!({ "did": id.did, "handle": id.handle, "pds": id.pds, "aka": aka, "keys": keys })))
+            Ok(Arc::new(
+                serde_json::json!({ "did": id.did, "handle": id.handle, "pds": id.pds, "aka": aka, "keys": keys }),
+            ))
         });
     }
 
@@ -126,14 +129,23 @@ impl Vortex {
         let mut author = div().flex().flex_col().min_w_0().flex_1();
         match self.lookup(&format!("profile:{did}")) {
             Some(Fetch::Done(Ok(p))) => {
-                author = author.child(profile_line(p, t)).child(div().text_color(t.fg_faint).truncate().child(profile_stats(p)));
+                author = author
+                    .child(profile_line(p, t))
+                    .child(div().text_color(t.fg_faint).truncate().child(profile_stats(p)));
             }
-            Some(Fetch::Done(Err(err))) => author = author.child(div().text_color(t.orange).truncate().child(err.clone())),
+            Some(Fetch::Done(Err(err))) => {
+                author = author.child(div().text_color(t.orange).truncate().child(err.clone()))
+            }
             _ => author = author.child(div().text_color(t.fg_faint).child("…")),
         }
         if let Some(id) = self.lookup_ok(&format!("ident:{did}")) {
             if let Some(pds) = id.get("pds").and_then(Value::as_str) {
-                author = author.child(div().text_color(t.fg_faint).truncate().child(format!("pds {}", pds.trim_start_matches("https://"))));
+                author = author.child(
+                    div()
+                        .text_color(t.fg_faint)
+                        .truncate()
+                        .child(format!("pds {}", pds.trim_start_matches("https://"))),
+                );
             }
         }
         let target = AtTarget::repo(did.clone());
@@ -161,7 +173,13 @@ impl Vortex {
                     Fetch::Done(Err(err)) => err.clone(),
                     Fetch::Pending => "…".into(),
                 };
-                out = out.child(div().flex().gap(t.ch).child(label("counts", t)).child(div().text_color(t.fg_dim).truncate().child(text)));
+                out = out.child(
+                    div()
+                        .flex()
+                        .gap(t.ch)
+                        .child(label("counts", t))
+                        .child(div().text_color(t.fg_dim).truncate().child(text)),
+                );
             }
         }
 
@@ -182,7 +200,12 @@ impl Vortex {
                                 .flex()
                                 .gap(t.ch)
                                 .min_w_0()
-                                .child(div().flex_none().text_color(t.blue).child(format!("@{}", author["handle"].as_str().unwrap_or("?"))))
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .text_color(t.blue)
+                                        .child(format!("@{}", author["handle"].as_str().unwrap_or("?"))),
+                                )
                                 .child(
                                     div()
                                         .flex_1()
@@ -202,7 +225,9 @@ impl Vortex {
                         .child(div().text_color(t.fg_faint).truncate().child(post_counts(p)));
                 }
                 (Ref::Actor(_), Some(Fetch::Done(Ok(p)))) => {
-                    body = body.child(profile_line(p, t)).child(div().text_color(t.fg_faint).truncate().child(profile_stats(p)));
+                    body = body
+                        .child(profile_line(p, t))
+                        .child(div().text_color(t.fg_faint).truncate().child(profile_stats(p)));
                 }
                 (_, Some(Fetch::Done(Err(err)))) => {
                     body = body
@@ -269,7 +294,14 @@ pub(super) fn event_refs(e: &Event) -> Vec<(&'static str, Ref)> {
     }
     let quote = e.field(Field::Quote);
     if !quote.is_empty() {
-        out.push(("quotes", if quote.contains("/app.bsky.feed.post/") { Ref::Post(quote.to_owned()) } else { Ref::Record(quote.to_owned()) }));
+        out.push((
+            "quotes",
+            if quote.contains("/app.bsky.feed.post/") {
+                Ref::Post(quote.to_owned())
+            } else {
+                Ref::Record(quote.to_owned())
+            },
+        ));
     }
     out
 }
@@ -280,12 +312,20 @@ fn profile_line(p: &Value, t: &Theme) -> Div {
         .gap(t.ch)
         .min_w_0()
         .child(div().flex_none().text_color(t.blue).child(format!("@{}", p["handle"].as_str().unwrap_or("?"))))
-        .child(div().flex_1().min_w_0().truncate().text_color(t.fg).child(p["displayName"].as_str().unwrap_or("").to_owned()))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_color(t.fg)
+                .child(p["displayName"].as_str().unwrap_or("").to_owned()),
+        )
 }
 
 fn profile_stats(p: &Value) -> String {
     let n = |k: &str| fmt_count(p[k].as_u64().unwrap_or(0));
-    let mut s = format!("{} followers · {} following · {} posts", n("followersCount"), n("followsCount"), n("postsCount"));
+    let mut s =
+        format!("{} followers · {} following · {} posts", n("followersCount"), n("followsCount"), n("postsCount"));
     if let Some(created) = p["createdAt"].as_str() {
         s.push_str(&format!(" · since {}", &created[..created.len().min(10)]));
     }

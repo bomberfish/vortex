@@ -328,7 +328,10 @@ mod tests {
 
         cfg.colors.clear();
         cfg.ui.theme = "mine".into();
-        cfg.themes.insert("mine".into(), [("base".to_string(), "nord".to_string()), ("bg".to_string(), "#000".to_string())].into());
+        cfg.themes.insert(
+            "mine".into(),
+            [("base".to_string(), "nord".to_string()), ("bg".to_string(), "#000".to_string())].into(),
+        );
         let (p, problems) = resolve_palette(&cfg);
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(p.bg, 0);

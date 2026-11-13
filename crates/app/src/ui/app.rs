@@ -11,16 +11,16 @@ mod lookup;
 use super::complete::{complete, Completion};
 use super::fps::FpsMeter;
 use super::input::{InputEvent, TextInput};
-use super::tip::tip;
 use super::rows::{
-    clock, fmt_bytes, fmt_count, fmt_duration_us, fmt_rate, json_lines, row_data, pdsls_url, short_collection, web_url, JsonLine,
-    RowData,
+    clock, fmt_bytes, fmt_count, fmt_duration_us, fmt_rate, json_lines, pdsls_url, row_data, short_collection, web_url,
+    JsonLine, RowData,
 };
+use super::tip::tip;
 use crate::config::{ConfigFile, SavedFilter, BUNDLED_FONT};
 use crate::theme::{resolve_palette, theme_names, Theme};
 use gpui::{
-    actions, canvas, deferred, div, fill, point, prelude::*, px, size, uniform_list, App, Bounds, ClipboardItem, Context, Div,
-    DragMoveEvent, Entity, FocusHandle, Focusable, Hsla, KeyBinding, MouseButton, MouseDownEvent, Pixels,
+    actions, canvas, deferred, div, fill, point, prelude::*, px, size, uniform_list, App, Bounds, ClipboardItem,
+    Context, Div, DragMoveEvent, Entity, FocusHandle, Focusable, Hsla, KeyBinding, MouseButton, MouseDownEvent, Pixels,
     ScrollEvent, ScrollStrategy, SharedString, StyledText, UniformListScrollHandle, Window, WindowControlArea,
 };
 use std::sync::Arc;
@@ -247,7 +247,8 @@ impl Vortex {
             InputEvent::Complete => this.accept_completion(None, cx),
             InputEvent::Up | InputEvent::Down if !this.completions.is_empty() => {
                 let n = this.completions.len();
-                this.completion_ix = if *ev == InputEvent::Up { (this.completion_ix + n - 1) % n } else { (this.completion_ix + 1) % n };
+                this.completion_ix =
+                    if *ev == InputEvent::Up { (this.completion_ix + n - 1) % n } else { (this.completion_ix + 1) % n };
                 cx.notify();
             }
             InputEvent::Up | InputEvent::Down => {}
@@ -340,7 +341,8 @@ impl Vortex {
     fn tick(&mut self, cx: &mut Context<Self>) {
         self.ticks += 1;
         let mut dirty = false;
-        let (store, log, status) = (self.engine.store.version(), self.engine.log.version(), self.engine.status_version());
+        let (store, log, status) =
+            (self.engine.store.version(), self.engine.log.version(), self.engine.status_version());
         if (store, log, status) != (self.seen_store, self.seen_log, self.seen_status) {
             (self.seen_store, self.seen_log, self.seen_status) = (store, log, status);
             self.status = self.engine.status();
@@ -775,7 +777,10 @@ impl Vortex {
                         let h = t.bg_hover;
                         move |s| s.bg(h)
                     })
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.toggle_connect(&ToggleConnect, window, cx)))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| this.toggle_connect(&ToggleConnect, window, cx)),
+                    )
                     .id("conn")
                     .tooltip(tip(
                         if self.status.state == ConnState::Idle { "connect" } else { "disconnect" },
@@ -793,29 +798,40 @@ impl Vortex {
                 SourceKind::JetstreamV1 => ("v1", "legacy Jetstream /subscribe endpoint"),
                 SourceKind::Firehose => ("firehose", "relay firehose: DAG-CBOR decoded locally; unfiltered, live only"),
             };
-            bar = bar.child(self.chip(label, k == kind, t).id(label).tooltip(tip(label, None, Some(about))).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _, _, cx| {
-                    if this.cfg.config.source.kind() != k {
-                        this.cfg.config.source.kind = k.label().into();
-                        this.cfg.config.source.hosts.clear();
-                        this.cfg_dirty = true;
-                        this.reconnect_fresh(cx);
-                    }
-                }),
-            ));
+            bar = bar.child(
+                self.chip(label, k == kind, t).id(label).tooltip(tip(label, None, Some(about))).on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, _, cx| {
+                        if this.cfg.config.source.kind() != k {
+                            this.cfg.config.source.kind = k.label().into();
+                            this.cfg.config.source.hosts.clear();
+                            this.cfg_dirty = true;
+                            this.reconnect_fresh(cx);
+                        }
+                    }),
+                ),
+            );
         }
         bar = bar.child(self.sep(t));
         if kind != SourceKind::Firehose {
             for (label, secs) in REWINDS {
-                let about = if secs == 0 { "start from now".to_owned() } else { format!("replay the last {label}, then continue live") };
-                bar = bar.child(self.chip(label, self.rewind_secs == secs, t).id(label).tooltip(tip(label, None, Some(&about))).on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _, _, cx| {
-                        this.rewind_secs = secs;
-                        this.reconnect_fresh(cx);
-                    }),
-                ));
+                let about = if secs == 0 {
+                    "start from now".to_owned()
+                } else {
+                    format!("replay the last {label}, then continue live")
+                };
+                bar = bar.child(
+                    self.chip(label, self.rewind_secs == secs, t)
+                        .id(label)
+                        .tooltip(tip(label, None, Some(&about)))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, _, cx| {
+                                this.rewind_secs = secs;
+                                this.reconnect_fresh(cx);
+                            }),
+                        ),
+                );
             }
             bar = bar
                 .child(self.sep(t))
@@ -898,7 +914,11 @@ impl Vortex {
                 self.stat(self.status.server_filter.clone(), "", t.aqua, t)
                     .child(div().text_color(t.fg_faint).child(" srv"))
                     .id("srv-filter")
-                    .tooltip(tip("server-side filter", None, Some("this part of the query is sent to the server; other events never arrive"))),
+                    .tooltip(tip(
+                        "server-side filter",
+                        None,
+                        Some("this part of the query is sent to the server; other events never arrive"),
+                    )),
             );
         }
         if let Some(r) = &self.refilter {
@@ -909,11 +929,11 @@ impl Vortex {
             );
         }
         right = right
-            .child(
-                self.stat(fmt_count(self.view_len as u64), " rows", t.fg, t)
-                    .id("rows")
-                    .tooltip(tip("rows", None, Some("buffered events matching the filter"))),
-            )
+            .child(self.stat(fmt_count(self.view_len as u64), " rows", t.fg, t).id("rows").tooltip(tip(
+                "rows",
+                None,
+                Some("buffered events matching the filter"),
+            )))
             .child(
                 self.chip(if self.follow { "▼ tail" } else { "▽ tail" }, self.follow, t)
                     .id("tail")
@@ -924,17 +944,18 @@ impl Vortex {
                     ),
             );
 
-        let mut bar = div().relative().flex().flex_col().flex_none().bg(t.bg).border_b_1().border_color(t.border).child(
-            div()
-                .flex()
-                .items_center()
-                .gap(t.pad)
-                .px(t.pad)
-                .py(t.pad * 0.5)
-                .child(div().flex_none().text_color(if focused { t.accent } else { t.fg_faint }).child("/"))
-                .child(self.filter_input.clone())
-                .child(right),
-        );
+        let mut bar =
+            div().relative().flex().flex_col().flex_none().bg(t.bg).border_b_1().border_color(t.border).child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(t.pad)
+                    .px(t.pad)
+                    .py(t.pad * 0.5)
+                    .child(div().flex_none().text_color(if focused { t.accent } else { t.fg_faint }).child("/"))
+                    .child(self.filter_input.clone())
+                    .child(right),
+            );
         if let Some(err) = &self.filter_error {
             bar = bar.child(div().px(t.pad).pb(t.pad * 0.5).text_color(t.red).truncate().child(err.clone()));
         }
@@ -954,7 +975,11 @@ impl Vortex {
                 .flex_none()
                 .gap(t.ch)
                 .when(filtered, |d| {
-                    d.child(div().text_color(if c.matched > 0 { t.accent } else { t.fg_faint }).child(fmt_count(c.matched as u64)))
+                    d.child(
+                        div()
+                            .text_color(if c.matched > 0 { t.accent } else { t.fg_faint })
+                            .child(fmt_count(c.matched as u64)),
+                    )
                 })
                 .child(
                     div()
@@ -966,17 +991,13 @@ impl Vortex {
                 )
         };
         let header = |title: &'static str, about: &'static str, t: &Theme| {
-            self.section(title, t)
-                .justify_between()
-                .id(title)
-                .tooltip(tip(title, None, Some(about)))
-                .child(
-                    div()
-                        .flex()
-                        .gap(t.ch)
-                        .when(filtered, |d| d.child(div().text_color(t.accent).child("match")))
-                        .child(div().w(t.ch * 5.).flex().justify_end().child("seen")),
-                )
+            self.section(title, t).justify_between().id(title).tooltip(tip(title, None, Some(about))).child(
+                div()
+                    .flex()
+                    .gap(t.ch)
+                    .when(filtered, |d| d.child(div().text_color(t.accent).child("match")))
+                    .child(div().w(t.ch * 5.).flex().justify_end().child("seen")),
+            )
         };
         let facet_row = |label: SharedString, color: Hsla, active: bool, c: FacetCount, t: &Theme| {
             let hover = t.bg_hover;
@@ -1053,7 +1074,10 @@ impl Vortex {
                             .cursor_pointer()
                             .text_color(if q == query { t.accent } else { t.fg_dim })
                             .child(s.name.clone())
-                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| this.set_query(&q, cx))),
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _, _, cx| this.set_query(&q, cx)),
+                            ),
                     )
                     .child(div().flex_none().cursor_pointer().text_color(t.fg_faint).child("×").on_mouse_down(
                         MouseButton::Left,
@@ -1171,30 +1195,25 @@ impl Vortex {
             .bg(t.bg_alt)
             .text_color(t.fg_faint)
             .child(div().flex_none().w(t.ch * 12.5).child("utc"))
-            .child(
-                div()
-                    .id("h-op")
-                    .flex_none()
-                    .w(t.ch)
-                    .child("±")
-                    .tooltip(tip("operation", None, Some("+ create   ~ update   - delete   @ identity   ! account   % sync"))),
-            )
+            .child(div().id("h-op").flex_none().w(t.ch).child("±").tooltip(tip(
+                "operation",
+                None,
+                Some("+ create   ~ update   - delete   @ identity   ! account   % sync"),
+            )))
             .child(div().flex_none().w(t.ch * 18.).child("type"))
             .child(div().flex_none().w(t.ch * 16.).child("did"))
-            .child(
-                div()
-                    .id("h-marks")
-                    .flex_none()
-                    .w(t.ch * 4.)
-                    .child("·")
-                    .tooltip(tip("marks", None, Some("↩ reply   ❝ quote   ▣ images   ▶ video   ∞ link"))),
-            )
+            .child(div().id("h-marks").flex_none().w(t.ch * 4.).child("·").tooltip(tip(
+                "marks",
+                None,
+                Some("↩ reply   ❝ quote   ▣ images   ▶ video   ∞ link"),
+            )))
             .child(div().flex_1().child("text"));
 
-        let list = uniform_list("events", self.view_len, cx.processor(|this, range, _window, cx| this.render_rows(range, cx)))
-            .track_scroll(&self.scroll)
-            .flex_1()
-            .w_full();
+        let list =
+            uniform_list("events", self.view_len, cx.processor(|this, range, _window, cx| this.render_rows(range, cx)))
+                .track_scroll(&self.scroll)
+                .flex_1()
+                .w_full();
 
         let mut body = div()
             .flex()
@@ -1222,7 +1241,15 @@ impl Vortex {
                 _ => "no events match",
             };
             body = body.child(
-                div().absolute().top(t.row * 3.).left_0().right_0().flex().justify_center().text_color(t.fg_faint).child(hint),
+                div()
+                    .absolute()
+                    .top(t.row * 3.)
+                    .left_0()
+                    .right_0()
+                    .flex()
+                    .justify_center()
+                    .text_color(t.fg_faint)
+                    .child(hint),
             );
         }
         body
@@ -1249,7 +1276,8 @@ impl Vortex {
             );
         }
         if self.show_help {
-            let mut help = div().id("help").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().p(t.pad).gap(px(1.));
+            let mut help =
+                div().id("help").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().p(t.pad).gap(px(1.));
             for (syntax, meaning) in FIELD_HELP {
                 help = help.child(
                     div()
@@ -1316,13 +1344,17 @@ impl Vortex {
             );
         }
         let mut meta = Vec::new();
-        for (label, field) in [("lang", Field::Langs), ("tag", Field::Tags), ("link", Field::Links), ("label", Field::Labels)] {
+        for (label, field) in
+            [("lang", Field::Langs), ("tag", Field::Tags), ("link", Field::Links), ("label", Field::Labels)]
+        {
             let items: Vec<&str> = e.list(field).collect();
             if !items.is_empty() {
                 meta.push(format!("{label} {}", items.join(" ")));
             }
         }
-        for (label, field) in [("re", Field::Parent), ("quote", Field::Quote), ("→", Field::Subject), ("alt", Field::Alt)] {
+        for (label, field) in
+            [("re", Field::Parent), ("quote", Field::Quote), ("→", Field::Subject), ("alt", Field::Alt)]
+        {
             if !e.field(field).is_empty() {
                 meta.push(format!("{label} {}", e.field(field).replace('\n', " ⏎ ")));
             }
@@ -1336,48 +1368,102 @@ impl Vortex {
         let collection = e.collection_str();
         let mut actions = div().flex().flex_wrap().gap(t.pad).pt(t.pad);
         actions = actions
-            .child(self.chip("inspect", false, t).id("d-inspect").tooltip(tip("inspect", Some("i"), Some("browse this record and its repo, PLC history and backlinks"))).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| this.inspect_selected(&InspectSelected, window, cx)),
-            ))
-            .child(self.chip("row", false, t).id("d-row").tooltip(tip("row", Some("r"), Some("scroll the list to this event"))).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| this.reveal_selected(&RevealSelected, window, cx)),
-            ))
-            .child(self.chip("json", false, t).id("d-json").tooltip(tip("json", Some("c"), Some("copy the event JSON"))).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| this.copy_json(&CopyJson, window, cx)),
-            ))
-            .child(self.chip("uri", false, t).id("d-uri").tooltip(tip("uri", Some("u"), Some("copy the AT-URI"))).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| this.copy_uri(&CopyUri, window, cx)),
-            ))
-            .child(self.chip("open", false, t).id("d-open").tooltip(tip("open", Some("↵"), Some("open on bsky.app (pdsls for other records)"))).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| this.open_in_browser(&OpenInBrowser, window, cx)),
-            ))
-            .child(self.chip("pdsls", false, t).id("d-pdsls").tooltip(tip("pdsls", Some("p"), Some("open the record on pdsls.dev"))).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| this.open_in_pdsls(&OpenInPdsls, window, cx)),
-            ))
-            .child(self.chip("+did", false, t).id("d-+did").tooltip(tip("+did", None, Some("only show this author"))).on_mouse_down(MouseButton::Left, {
-                let did = did.clone();
-                cx.listener(move |this, _, _, cx| this.toggle_term("did", &did, false, cx))
-            }))
-            .child(self.chip("-did", false, t).id("d--did").tooltip(tip("-did", None, Some("hide this author"))).on_mouse_down(MouseButton::Left, {
-                let did = did.clone();
-                cx.listener(move |this, _, _, cx| this.toggle_term("did", &did, true, cx))
-            }));
+            .child(
+                self.chip("inspect", false, t)
+                    .id("d-inspect")
+                    .tooltip(tip(
+                        "inspect",
+                        Some("i"),
+                        Some("browse this record and its repo, PLC history and backlinks"),
+                    ))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| this.inspect_selected(&InspectSelected, window, cx)),
+                    ),
+            )
+            .child(
+                self.chip("row", false, t)
+                    .id("d-row")
+                    .tooltip(tip("row", Some("r"), Some("scroll the list to this event")))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| this.reveal_selected(&RevealSelected, window, cx)),
+                    ),
+            )
+            .child(
+                self.chip("json", false, t)
+                    .id("d-json")
+                    .tooltip(tip("json", Some("c"), Some("copy the event JSON")))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| this.copy_json(&CopyJson, window, cx)),
+                    ),
+            )
+            .child(
+                self.chip("uri", false, t)
+                    .id("d-uri")
+                    .tooltip(tip("uri", Some("u"), Some("copy the AT-URI")))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| this.copy_uri(&CopyUri, window, cx)),
+                    ),
+            )
+            .child(
+                self.chip("open", false, t)
+                    .id("d-open")
+                    .tooltip(tip("open", Some("↵"), Some("open on bsky.app (pdsls for other records)")))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| this.open_in_browser(&OpenInBrowser, window, cx)),
+                    ),
+            )
+            .child(
+                self.chip("pdsls", false, t)
+                    .id("d-pdsls")
+                    .tooltip(tip("pdsls", Some("p"), Some("open the record on pdsls.dev")))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| this.open_in_pdsls(&OpenInPdsls, window, cx)),
+                    ),
+            )
+            .child(
+                self.chip("+did", false, t)
+                    .id("d-+did")
+                    .tooltip(tip("+did", None, Some("only show this author")))
+                    .on_mouse_down(MouseButton::Left, {
+                        let did = did.clone();
+                        cx.listener(move |this, _, _, cx| this.toggle_term("did", &did, false, cx))
+                    }),
+            )
+            .child(
+                self.chip("-did", false, t)
+                    .id("d--did")
+                    .tooltip(tip("-did", None, Some("hide this author")))
+                    .on_mouse_down(MouseButton::Left, {
+                        let did = did.clone();
+                        cx.listener(move |this, _, _, cx| this.toggle_term("did", &did, true, cx))
+                    }),
+            );
         if !collection.is_empty() {
             actions = actions
-                .child(self.chip("+type", false, t).id("d-+type").tooltip(tip("+type", None, Some("only show this record type"))).on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _, _, cx| this.toggle_term("collection", collection, false, cx)),
-                ))
-                .child(self.chip("-type", false, t).id("d--type").tooltip(tip("-type", None, Some("hide this record type"))).on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _, _, cx| this.toggle_term("collection", collection, true, cx)),
-                ));
+                .child(
+                    self.chip("+type", false, t)
+                        .id("d-+type")
+                        .tooltip(tip("+type", None, Some("only show this record type")))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, _, cx| this.toggle_term("collection", collection, false, cx)),
+                        ),
+                )
+                .child(
+                    self.chip("-type", false, t)
+                        .id("d--type")
+                        .tooltip(tip("-type", None, Some("hide this record type")))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, _, cx| this.toggle_term("collection", collection, true, cx)),
+                        ),
+                );
         }
         head = head.child(actions);
 
@@ -1991,7 +2077,8 @@ impl Render for Vortex {
                 match ev.drag(cx).0 {
                     Pane::Sidebar => this.cfg.config.ui.sidebar_width = (x / px(1.)).clamp(120., 600.),
                     Pane::Detail => {
-                        this.cfg.config.ui.detail_width = ((window.viewport_size().width - x) / px(1.)).clamp(160., 1600.)
+                        this.cfg.config.ui.detail_width =
+                            ((window.viewport_size().width - x) / px(1.)).clamp(160., 1600.)
                     }
                 }
                 this.cfg_dirty = true;
@@ -2027,7 +2114,10 @@ mod tests {
         assert_eq!(t("", "collection", "a.b.c", false), "collection:a.b.c");
         assert_eq!(t("hello", "collection", "a.b.c", false), "hello collection:a.b.c");
         assert_eq!(t("hello collection:a.b.c", "collection", "x.y.z", false), "hello collection:a.b.c,x.y.z");
-        assert_eq!(t("hello collection:a.b.c,x.y.z lang:en", "collection", "a.b.c", false), "hello collection:x.y.z lang:en");
+        assert_eq!(
+            t("hello collection:a.b.c,x.y.z lang:en", "collection", "a.b.c", false),
+            "hello collection:x.y.z lang:en"
+        );
         assert_eq!(t("collection:a.b.c", "collection", "a.b.c", false), "");
         // Excluding terms are tracked separately.
         assert_eq!(t("collection:a.b.c", "collection", "x.y.z", true), "collection:a.b.c -collection:x.y.z");

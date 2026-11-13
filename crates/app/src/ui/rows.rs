@@ -60,7 +60,9 @@ pub fn short_collection(nsid: &str) -> &str {
 
 /// `did:plc:7e6kocyzb77xkncplrkoojej` → `7e6kocyzb77xkncp`; others keep their method.
 pub fn short_did(did: &str) -> &str {
-    did.strip_prefix("did:plc:").map(|id| &id[..id.len().min(16)]).unwrap_or_else(|| did.strip_prefix("did:").unwrap_or(did))
+    did.strip_prefix("did:plc:")
+        .map(|id| &id[..id.len().min(16)])
+        .unwrap_or_else(|| did.strip_prefix("did:").unwrap_or(did))
 }
 
 fn preview(s: &str, max_chars: usize) -> String {
@@ -86,7 +88,8 @@ pub fn row_data(e: &Event) -> RowData {
         (Kind::Sync, _) => ("%", Tone::Dim),
     };
     let collection = e.collection_str();
-    let what: SharedString = if collection.is_empty() { e.kind.as_str().into() } else { short_collection(collection).into() };
+    let what: SharedString =
+        if collection.is_empty() { e.kind.as_str().into() } else { short_collection(collection).into() };
 
     let (text, text_is_ref) = if !e.text().is_empty() {
         (preview(e.text(), 400), false)
@@ -103,13 +106,9 @@ pub fn row_data(e: &Event) -> RowData {
     };
 
     let mut marks = String::new();
-    for (flag, mark) in [
-        (Flags::REPLY, '↩'),
-        (Flags::QUOTE, '❝'),
-        (Flags::IMAGES, '▣'),
-        (Flags::VIDEO, '▶'),
-        (Flags::LINK, '∞'),
-    ] {
+    for (flag, mark) in
+        [(Flags::REPLY, '↩'), (Flags::QUOTE, '❝'), (Flags::IMAGES, '▣'), (Flags::VIDEO, '▶'), (Flags::LINK, '∞')]
+    {
         if e.flags.contains(flag) {
             marks.push(mark);
         }
@@ -313,15 +312,21 @@ mod tests {
 
     #[test]
     fn pdsls_links() {
-        let like = ev(r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"commit","commit":{"operation":"create","collection":"app.bsky.feed.like","rkey":"3k","record":{}}}"#);
+        let like = ev(
+            r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"commit","commit":{"operation":"create","collection":"app.bsky.feed.like","rkey":"3k","record":{}}}"#,
+        );
         assert_eq!(pdsls_url(&like), "https://pdsls.dev/at://did:plc:7e6kocyzb77xkncplrkoojej/app.bsky.feed.like/3k");
-        let ident = ev(r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"identity","identity":{"did":"did:plc:7e6kocyzb77xkncplrkoojej","seq":1,"time":"2026-01-01T00:00:00Z"}}"#);
+        let ident = ev(
+            r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"identity","identity":{"did":"did:plc:7e6kocyzb77xkncplrkoojej","seq":1,"time":"2026-01-01T00:00:00Z"}}"#,
+        );
         assert_eq!(pdsls_url(&ident), "https://pdsls.dev/at://did:plc:7e6kocyzb77xkncplrkoojej");
     }
 
     #[test]
     fn rows_for_each_shape() {
-        let post = ev(r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1786603663959305,"kind":"commit","commit":{"operation":"create","collection":"app.bsky.feed.post","rkey":"3k","record":{"text":"line one\nline two","reply":{"parent":{"uri":"at://x/y/z"}},"embed":{"images":[{"alt":""}]}}}}"#);
+        let post = ev(
+            r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1786603663959305,"kind":"commit","commit":{"operation":"create","collection":"app.bsky.feed.post","rkey":"3k","record":{"text":"line one\nline two","reply":{"parent":{"uri":"at://x/y/z"}},"embed":{"images":[{"alt":""}]}}}}"#,
+        );
         let r = row_data(&post);
         assert_eq!((r.glyph, r.tone), ("+", Tone::Green));
         assert_eq!(r.what.as_ref(), "feed.post");
@@ -332,17 +337,23 @@ mod tests {
         assert_eq!(r.marks.as_ref(), "↩▣");
         assert!(!r.text_is_ref);
 
-        let like = ev(r#"{"did":"did:web:example.com","time_us":1,"kind":"commit","commit":{"operation":"delete","collection":"com.example.thing","rkey":"3k","record":{"subject":{"uri":"at://did:plc:abc/app.bsky.feed.post/3x"}}}}"#);
+        let like = ev(
+            r#"{"did":"did:web:example.com","time_us":1,"kind":"commit","commit":{"operation":"delete","collection":"com.example.thing","rkey":"3k","record":{"subject":{"uri":"at://did:plc:abc/app.bsky.feed.post/3x"}}}}"#,
+        );
         let r = row_data(&like);
         assert_eq!((r.glyph, r.what.as_ref(), r.did.as_ref()), ("-", "com.example.thing", "web:example.com"));
         assert_eq!(r.text.as_ref(), "did:plc:abc/app.bsky.feed.post/3x");
         assert!(r.text_is_ref);
 
-        let id = ev(r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"identity","identity":{"handle":"alice.test"}}"#);
+        let id = ev(
+            r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"identity","identity":{"handle":"alice.test"}}"#,
+        );
         let r = row_data(&id);
         assert_eq!((r.glyph, r.what.as_ref(), r.text.as_ref(), r.collection), ("@", "identity", "alice.test", ""));
 
-        let acct = ev(r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"account","account":{"active":false,"status":"takendown"}}"#);
+        let acct = ev(
+            r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"account","account":{"active":false,"status":"takendown"}}"#,
+        );
         assert_eq!(row_data(&acct).text.as_ref(), "inactive takendown");
     }
 
@@ -358,7 +369,10 @@ mod tests {
                 (",".into(), JsonTok::Punct)
             ]
         );
-        assert_eq!(toks("  \"n\": -12.5e3"), [("\"n\"".into(), JsonTok::Key), (":".into(), JsonTok::Punct), ("-12.5e3".into(), JsonTok::Num)]);
+        assert_eq!(
+            toks("  \"n\": -12.5e3"),
+            [("\"n\"".into(), JsonTok::Key), (":".into(), JsonTok::Punct), ("-12.5e3".into(), JsonTok::Num)]
+        );
         assert_eq!(toks("true,"), [("true".into(), JsonTok::Lit), (",".into(), JsonTok::Punct)]);
         assert_eq!(toks("  \"日本語\","), [("\"日本語\"".into(), JsonTok::Str), (",".into(), JsonTok::Punct)]);
         assert_eq!(toks("\"unterminated"), [("\"unterminated".into(), JsonTok::Str)]);
@@ -394,9 +408,13 @@ mod tests {
 
     #[test]
     fn web_urls() {
-        let post = ev(r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"commit","commit":{"operation":"create","collection":"app.bsky.feed.post","rkey":"3kabc","record":{}}}"#);
+        let post = ev(
+            r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"commit","commit":{"operation":"create","collection":"app.bsky.feed.post","rkey":"3kabc","record":{}}}"#,
+        );
         assert_eq!(web_url(&post).unwrap(), "https://bsky.app/profile/did:plc:7e6kocyzb77xkncplrkoojej/post/3kabc");
-        let other = ev(r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"commit","commit":{"operation":"create","collection":"com.example.x","rkey":"r","record":{}}}"#);
+        let other = ev(
+            r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"commit","commit":{"operation":"create","collection":"com.example.x","rkey":"r","record":{}}}"#,
+        );
         assert_eq!(web_url(&other).unwrap(), "https://pdsls.dev/at://did:plc:7e6kocyzb77xkncplrkoojej/com.example.x/r");
     }
 }

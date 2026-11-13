@@ -16,8 +16,23 @@ pub struct FieldDoc {
 }
 
 const TYPES: &[&str] = &[
-    "post", "like", "repost", "follow", "block", "profile", "list", "listitem", "listblock", "feedgen",
-    "threadgate", "postgate", "starterpack", "labeler", "verification", "chat", "bsky",
+    "post",
+    "like",
+    "repost",
+    "follow",
+    "block",
+    "profile",
+    "list",
+    "listitem",
+    "listblock",
+    "feedgen",
+    "threadgate",
+    "postgate",
+    "starterpack",
+    "labeler",
+    "verification",
+    "chat",
+    "bsky",
 ];
 /// The NSID a `type:` alias stands for, shown next to the suggestion.
 fn type_nsid(field: &str, alias: &str) -> &'static str {
@@ -53,29 +68,99 @@ const FLAGS: &[&str] = &[
 
 pub const FIELDS: &[FieldDoc] = &[
     FieldDoc { insert: "type:", doc: "record type: post like follow … or an NSID", values: TYPES, example: "post" },
-    FieldDoc { insert: "kind:", doc: "commit · identity · account · sync", values: &["commit", "identity", "account", "sync"], example: "commit" },
-    FieldDoc { insert: "op:", doc: "create · update · delete", values: &["create", "update", "delete"], example: "create" },
+    FieldDoc {
+        insert: "kind:",
+        doc: "commit · identity · account · sync",
+        values: &["commit", "identity", "account", "sync"],
+        example: "commit",
+    },
+    FieldDoc {
+        insert: "op:",
+        doc: "create · update · delete",
+        values: &["create", "update", "delete"],
+        example: "create",
+    },
     FieldDoc { insert: "has:", doc: "has a feature: media reply link tag …", values: FLAGS, example: "media" },
-    FieldDoc { insert: "is:", doc: "is a reply / quote / root post, or active account", values: &["reply", "quote", "root", "active", "create", "update", "delete"], example: "reply" },
-    FieldDoc { insert: "embed:", doc: "embed type", values: &["image", "video", "external", "record", "media", "gif", "none"], example: "video" },
-    FieldDoc { insert: "lang:", doc: "post language (en matches en-US)", values: &["en", "ja", "pt", "de", "es", "fr", "ko", "zh", "it", "nl", "tr", "ru"], example: "en" },
+    FieldDoc {
+        insert: "is:",
+        doc: "is a reply / quote / root post, or active account",
+        values: &["reply", "quote", "root", "active", "create", "update", "delete"],
+        example: "reply",
+    },
+    FieldDoc {
+        insert: "embed:",
+        doc: "embed type",
+        values: &["image", "video", "external", "record", "media", "gif", "none"],
+        example: "video",
+    },
+    FieldDoc {
+        insert: "lang:",
+        doc: "post language (en matches en-US)",
+        values: &["en", "ja", "pt", "de", "es", "fr", "ko", "zh", "it", "nl", "tr", "ru"],
+        example: "en",
+    },
     FieldDoc { insert: "text:", doc: "post text contains (case-insensitive)", values: &[], example: "cats" },
     FieldDoc { insert: "word:", doc: "whole word in post text", values: &[], example: "cat" },
     FieldDoc { insert: "name:", doc: "display name contains", values: &[], example: "bob" },
     FieldDoc { insert: "alt:", doc: "image alt text contains", values: &[], example: "sunset" },
     FieldDoc { insert: "tag:", doc: "hashtag (also #tag)", values: &[], example: "art" },
-    FieldDoc { insert: "did:", doc: "author DID · did:@file loads a list", values: &[], example: "did:plc:z72i7hdynmk6r22z27h6tvur" },
+    FieldDoc {
+        insert: "did:",
+        doc: "author DID · did:@file loads a list",
+        values: &[],
+        example: "did:plc:z72i7hdynmk6r22z27h6tvur",
+    },
     FieldDoc { insert: "mention:", doc: "mentions this DID", values: &[], example: "did:plc:z72i7hdynmk6r22z27h6tvur" },
-    FieldDoc { insert: "subject:", doc: "like / follow / block target contains (a DID works)", values: &[], example: "did:plc:z72i7hdynmk6r22z27h6tvur" },
-    FieldDoc { insert: "reply-to:", doc: "parent post AT-URI contains", values: &[], example: "did:plc:z72i7hdynmk6r22z27h6tvur" },
-    FieldDoc { insert: "root:", doc: "thread root AT-URI contains", values: &[], example: "did:plc:z72i7hdynmk6r22z27h6tvur" },
-    FieldDoc { insert: "quote:", doc: "quoted post AT-URI contains", values: &[], example: "did:plc:z72i7hdynmk6r22z27h6tvur" },
+    FieldDoc {
+        insert: "subject:",
+        doc: "like / follow / block target contains (a DID works)",
+        values: &[],
+        example: "did:plc:z72i7hdynmk6r22z27h6tvur",
+    },
+    FieldDoc {
+        insert: "reply-to:",
+        doc: "parent post AT-URI contains",
+        values: &[],
+        example: "did:plc:z72i7hdynmk6r22z27h6tvur",
+    },
+    FieldDoc {
+        insert: "root:",
+        doc: "thread root AT-URI contains",
+        values: &[],
+        example: "did:plc:z72i7hdynmk6r22z27h6tvur",
+    },
+    FieldDoc {
+        insert: "quote:",
+        doc: "quoted post AT-URI contains",
+        values: &[],
+        example: "did:plc:z72i7hdynmk6r22z27h6tvur",
+    },
     FieldDoc { insert: "link:", doc: "link URL contains", values: &[], example: "youtube" },
-    FieldDoc { insert: "domain:", doc: "link host (subdomains match)", values: &["github.com", "youtube.com", "youtu.be", "nytimes.com"], example: "github.com" },
-    FieldDoc { insert: "label:", doc: "self-label", values: &["porn", "sexual", "nudity", "graphic-media", "!no-unauthenticated"], example: "porn" },
-    FieldDoc { insert: "collection:", doc: "NSID, globs ok: app.bsky.graph.*", values: &[], example: "app.bsky.feed.post" },
+    FieldDoc {
+        insert: "domain:",
+        doc: "link host (subdomains match)",
+        values: &["github.com", "youtube.com", "youtu.be", "nytimes.com"],
+        example: "github.com",
+    },
+    FieldDoc {
+        insert: "label:",
+        doc: "self-label",
+        values: &["porn", "sexual", "nudity", "graphic-media", "!no-unauthenticated"],
+        example: "porn",
+    },
+    FieldDoc {
+        insert: "collection:",
+        doc: "NSID, globs ok: app.bsky.graph.*",
+        values: &[],
+        example: "app.bsky.feed.post",
+    },
     FieldDoc { insert: "handle:", doc: "identity events: new handle", values: &[], example: "bob.bsky.social" },
-    FieldDoc { insert: "status:", doc: "account events: status", values: &["takendown", "suspended", "deleted", "deactivated", "desynchronized", "throttled"], example: "takendown" },
+    FieldDoc {
+        insert: "status:",
+        doc: "account events: status",
+        values: &["takendown", "suspended", "deleted", "deactivated", "desynchronized", "throttled"],
+        example: "takendown",
+    },
     FieldDoc { insert: "active:", doc: "account events: active or not", values: &["true", "false"], example: "false" },
     FieldDoc { insert: "uri:", doc: "AT-URI contains", values: &[], example: "app.bsky.feed.post" },
     FieldDoc { insert: "rkey:", doc: "record key", values: &["self"], example: "self" },
@@ -89,10 +174,20 @@ pub const FIELDS: &[FieldDoc] = &[
     FieldDoc { insert: "bytes>", doc: "frame size in bytes", values: &["10000"], example: "10000" },
     FieldDoc { insert: "time>", doc: "event time: 2026-01-01T00:00Z", values: &[], example: "2026-01-01T00:00Z" },
     FieldDoc { insert: "created>", doc: "record createdAt", values: &[], example: "2026-01-01T00:00Z" },
-    FieldDoc { insert: "skew>", doc: "createdAt − event time: skew>1h, skew<10m", values: &["10m", "1h", "1d"], example: "1h" },
+    FieldDoc {
+        insert: "skew>",
+        doc: "createdAt − event time: skew>1h, skew<10m",
+        values: &["10m", "1h", "1d"],
+        example: "1h",
+    },
     FieldDoc { insert: "seq>", doc: "cursor / sequence number", values: &[], example: "0" },
     FieldDoc { insert: "sample:", doc: "keep a deterministic fraction", values: &["1%", "10%", "50%"], example: "10%" },
-    FieldDoc { insert: "exists:", doc: "JSON path exists: record.embed", values: &["record.embed", "record.reply", "record.labels"], example: "record.embed" },
+    FieldDoc {
+        insert: "exists:",
+        doc: "JSON path exists: record.embed",
+        values: &["record.embed", "record.reply", "record.labels"],
+        example: "record.embed",
+    },
     FieldDoc { insert: "record.", doc: "any record field: record.embed.$type:…", values: &[], example: "text:hi" },
     FieldDoc { insert: "json.", doc: "any frame field: json.commit.rev:…", values: &[], example: "did:x" },
 ];
@@ -130,19 +225,28 @@ pub fn complete(text: &str, cursor: usize, nsids: &[&str]) -> (Range<usize>, Vec
     // `field<op>value`: complete the value (after the last comma).
     if let Some(op_at) = token.find([':', '=', '~', '<', '>', '!']) {
         let field_name = token[..op_at].to_ascii_lowercase();
-        let ops_end = op_at + token[op_at..].find(|c: char| !matches!(c, ':' | '=' | '~' | '<' | '>' | '!')).unwrap_or(token.len() - op_at);
+        let ops_end = op_at
+            + token[op_at..]
+                .find(|c: char| !matches!(c, ':' | '=' | '~' | '<' | '>' | '!'))
+                .unwrap_or(token.len() - op_at);
         let value = &token[ops_end..];
         let value_start = value.rfind(',').map_or(0, |i| i + 1);
         let prefix = value[value_start..].to_ascii_lowercase();
         let range = start + ops_end + value_start..cursor;
-        let Some(field) = FIELDS.iter().find(|f| f.insert.trim_end_matches([':', '=', '~', '<', '>', '!']) == field_name) else {
+        let Some(field) =
+            FIELDS.iter().find(|f| f.insert.trim_end_matches([':', '=', '~', '<', '>', '!']) == field_name)
+        else {
             return (range, Vec::new());
         };
         let mut out: Vec<Completion> = field
             .values
             .iter()
             .filter(|v| v.starts_with(&prefix) && **v != prefix)
-            .map(|v| Completion { insert: (*v).to_owned(), label: (*v).to_owned(), doc: type_nsid(&field_name, v).to_owned() })
+            .map(|v| Completion {
+                insert: (*v).to_owned(),
+                label: (*v).to_owned(),
+                doc: type_nsid(&field_name, v).to_owned(),
+            })
             .collect();
         if matches!(field_name.as_str(), "type" | "collection") {
             for n in nsids {
