@@ -24,6 +24,19 @@ pub(super) struct Inspector {
     pages: Vec<String>,
     /// Pretty-printed record JSON, keyed by lookup key.
     record_lines: Option<(String, Arc<Vec<JsonLine>>)>,
+    /// Collection rows built from the loaded pages, keyed by collection URI
+    /// and how many pages had loaded; rebuilt only when another page arrives.
+    coll_rows: Option<((String, usize), Arc<Vec<CollRow>>)>,
+    record_scroll: UniformListScrollHandle,
+    coll_scroll: UniformListScrollHandle,
+}
+
+/// One record in a collection listing, prepared for display.
+pub(super) struct CollRow {
+    target: AtTarget,
+    rkey: SharedString,
+    when: SharedString,
+    preview: SharedString,
 }
 
 impl Inspector {
@@ -35,6 +48,9 @@ impl Inspector {
             tab: RepoTab::Collections,
             pages: Vec::new(),
             record_lines: None,
+            coll_rows: None,
+            record_scroll: UniformListScrollHandle::new(),
+            coll_scroll: UniformListScrollHandle::new(),
         }
     }
 }
@@ -219,6 +235,10 @@ impl Vortex {
     /// Pre-render step (needs `&mut self`): pretty-print a loaded record once.
     pub(super) fn prepare_inspector(&mut self) {
         let Some(i) = &self.inspector else { return };
+        if i.target.collection.is_some() && i.target.rkey.is_none() {
+            self.prepare_collection_rows();
+            return;
+        }
         if i.target.rkey.is_none() {
             return;
         }
@@ -231,6 +251,38 @@ impl Vortex {
         let lines = Arc::new(json_lines(&raw, 5000, 2000));
         if let Some(i) = &mut self.inspector {
             i.record_lines = Some((key, lines));
+        }
+    }
+
+    /// Flatten loaded `listRecords` pages into display rows, once per page.
+    fn prepare_collection_rows(&mut self) {
+        let Some(i) = &self.inspector else { return };
+        let loaded = i.pages.iter().take_while(|k| self.lookup_ok(k).is_some()).count();
+        let key = (i.target.uri(), loaded);
+        if i.coll_rows.as_ref().is_some_and(|(k, _)| *k == key) {
+            return;
+        }
+        let mut rows = Vec::new();
+        for key in &i.pages[..loaded] {
+            let Some(page) = self.lookup_ok(key) else { continue };
+            for rec in page["records"].as_array().into_iter().flatten() {
+                let Some(target) = parse_target(rec["uri"].as_str().unwrap_or("")) else { continue };
+                let value = &rec["value"];
+                let when = value["createdAt"].as_str().unwrap_or("").replace('T', " ");
+                let mut preview = record_preview(value);
+                if let Some((cut, _)) = preview.char_indices().nth(300) {
+                    preview.truncate(cut);
+                }
+                rows.push(CollRow {
+                    rkey: target.rkey.clone().unwrap_or_default().into(),
+                    when: when[..when.len().min(16)].to_owned().into(),
+                    preview: preview.into(),
+                    target,
+                });
+            }
+        }
+        if let Some(i) = &mut self.inspector {
+            i.coll_rows = Some((key, Arc::new(rows)));
         }
     }
 
@@ -375,23 +427,25 @@ impl Vortex {
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close_inspector(cx))),
             );
 
-        let body = match (&target.collection, &target.rkey) {
-            (None, _) => self.render_repo_page(i, t, cx),
-            (Some(_), None) => self.render_collection_page(i, t, cx),
-            (Some(_), Some(_)) => self.render_record_page(i, t, cx),
-        };
-        div().flex().flex_col().flex_1().min_w_0().h_full().child(nav).child(
-            div()
-                .id("inspect-body")
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .p(t.pad)
-                .gap(px(1.))
-                .child(body),
-        )
+        let page = div().flex().flex_col().flex_1().min_w_0().h_full().child(nav);
+        match (&target.collection, &target.rkey) {
+            (None, _) => page.child(
+                div()
+                    .id("inspect-body")
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p(t.pad)
+                    .gap(px(1.))
+                    .child(self.render_repo_page(i, t, cx)),
+            ),
+            // These can run to thousands of rows: virtualised lists that
+            // scroll themselves.
+            (Some(_), None) => page.child(self.render_collection_page(i, t, cx)),
+            (Some(_), Some(_)) => page.child(self.render_record_page(i, t, cx)),
+        }
     }
 
     fn status_line(&self, key: &str, what: &str, t: &Theme) -> Option<Div> {
@@ -613,87 +667,119 @@ impl Vortex {
     }
 
     fn render_collection_page(&self, i: &Inspector, t: &Theme, cx: &mut Context<Self>) -> Div {
-        let mut out = div().flex().flex_col().gap(px(1.));
-        let mut total = 0usize;
-        let mut n = 0usize;
+        let mut out = div().flex().flex_col().flex_1().min_h_0().p(t.pad);
         for key in &i.pages {
             if let Some(s) = self.status_line(key, "records", t) {
                 out = out.child(s);
-                continue;
-            }
-            let Some(page) = self.lookup_ok(key) else { continue };
-            for rec in page["records"].as_array().into_iter().flatten() {
-                total += 1;
-                let uri = rec["uri"].as_str().unwrap_or("");
-                let Some(target) = parse_target(uri) else { continue };
-                let rkey = target.rkey.clone().unwrap_or_default();
-                let value = &rec["value"];
-                let when = value["createdAt"].as_str().unwrap_or("").replace('T', " ");
-                let preview = record_preview(value);
-                let row = div()
-                    .flex()
-                    .gap(t.ch)
-                    .min_w_0()
-                    .child(div().flex_none().w(t.ch * 15.).text_color(t.fg_dim).child(rkey))
-                    .child(
-                        div()
-                            .flex_none()
-                            .w(t.ch * 17.)
-                            .text_color(t.fg_faint)
-                            .child(when[..when.len().min(16)].to_owned()),
-                    )
-                    .child(div().flex_1().min_w_0().truncate().text_color(t.fg).child(preview));
-                out = out.child(self.link_row(("rec", n), row, target, t, cx));
-                n += 1;
             }
         }
+        let rows = i.coll_rows.as_ref().map(|(_, r)| r.clone()).unwrap_or_default();
+        let total = rows.len();
+        let list = uniform_list(
+            "coll-rows",
+            total,
+            cx.processor(|this, range: std::ops::Range<usize>, _window, cx| this.render_coll_rows(range, cx)),
+        )
+        .track_scroll(&i.coll_scroll)
+        .flex_1()
+        .w_full();
         let more = i.pages.last().and_then(|k| self.lookup_ok(k)).and_then(|v| v["cursor"].as_str()).is_some();
-        out = out.child(
-            div().flex().gap(t.ch).pt(t.pad).text_color(t.fg_faint).child(format!("{total} records")).when(more, |d| {
-                d.child(
-                    self.chip("load 100 more", false, t)
-                        .id("i-more")
-                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.load_more(cx))),
-                )
-            }),
-        );
-        out
+        out.child(list).child(
+            div().flex().flex_none().gap(t.ch).pt(t.pad).text_color(t.fg_faint).child(format!("{total} records")).when(
+                more,
+                |d| {
+                    d.child(
+                        self.chip("load 100 more", false, t)
+                            .id("i-more")
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.load_more(cx))),
+                    )
+                },
+            ),
+        )
+    }
+
+    fn render_coll_rows(&mut self, range: std::ops::Range<usize>, cx: &mut Context<Self>) -> Vec<Div> {
+        let t = Theme::get(cx).clone();
+        let Some(rows) = self.inspector.as_ref().and_then(|i| i.coll_rows.as_ref()).map(|(_, r)| r.clone()) else {
+            return Vec::new();
+        };
+        range
+            .filter_map(|n| rows.get(n).map(|r| (n, r)))
+            .map(|(n, r)| {
+                let row = div()
+                    .flex()
+                    .h(t.row)
+                    .gap(t.ch)
+                    .min_w_0()
+                    .child(div().flex_none().w(t.ch * 15.).text_color(t.fg_dim).child(r.rkey.clone()))
+                    .child(div().flex_none().w(t.ch * 17.).text_color(t.fg_faint).child(r.when.clone()))
+                    .child(div().flex_1().min_w_0().truncate().text_color(t.fg).child(r.preview.clone()));
+                self.link_row(("rec", n), row, r.target.clone(), &t, cx)
+            })
+            .collect()
     }
 
     fn render_record_page(&self, i: &Inspector, t: &Theme, cx: &mut Context<Self>) -> Div {
         let uri = i.target.uri();
-        let mut out = div().flex().flex_col().gap(px(1.));
+        let mut head = div().flex().flex_col().flex_none().gap(px(1.)).pb(t.pad);
         let key = key_record(&uri);
         if let Some(s) = self.status_line(&key, "record", t) {
-            out = out.child(s);
+            head = head.child(s);
         }
         if let Some(v) = self.lookup_ok(&key) {
-            out = out.child(
+            head = head.child(
                 div().text_color(t.fg_faint).truncate().child(format!("cid {}", v["cid"].as_str().unwrap_or("–"))),
             );
         }
         if let Some(p) = self.lookup_ok(&format!("postview:{uri}")) {
-            out = out.child(super::lookup::post_counts(p, t));
+            head = head.child(super::lookup::post_counts(p, t));
         }
-        // JSON, with references clickable.
-        if let Some((_, lines)) = &i.record_lines {
-            out = out.child(div().h(t.pad));
-            for (n, line) in lines.iter().enumerate() {
-                let highlights = line.spans.iter().map(|(r, tok)| (r.clone(), tok.style(t)));
-                let text = StyledText::new(line.text.clone()).with_highlights(highlights);
-                let row = div().whitespace_nowrap().child(text);
-                out = out.child(match link_in_line(&line.text) {
-                    Some(target) => self.link_row(("json", n), row, target, t, cx),
-                    None => row,
-                });
-            }
-        }
+        // JSON, with references clickable; virtualised.
+        let n = i.record_lines.as_ref().map_or(0, |(_, l)| l.len());
+        let json = uniform_list(
+            "rec-json",
+            n,
+            cx.processor(|this, range: std::ops::Range<usize>, _window, cx| this.render_record_lines(range, cx)),
+        )
+        .track_scroll(&i.record_scroll)
+        .flex_1()
+        .w_full();
         let links = key_links(&uri);
-        out = out.child(div().pt(t.pad).text_color(t.fg_faint).child("backlinks"));
+        let mut backlinks = div()
+            .id("rec-backlinks")
+            .flex()
+            .flex_col()
+            .flex_none()
+            .max_h(t.row * 9.)
+            .overflow_y_scroll()
+            .pt(t.pad)
+            .border_t_1()
+            .border_color(t.border)
+            .child(div().text_color(t.fg_faint).child("backlinks"));
         if let Some(s) = self.status_line(&links, "backlinks", t) {
-            out = out.child(s);
+            backlinks = backlinks.child(s);
         }
-        out.children(self.backlink_rows(&links, t))
+        backlinks = backlinks.children(self.backlink_rows(&links, t));
+        div().flex().flex_col().flex_1().min_h_0().p(t.pad).child(head).child(json).child(backlinks)
+    }
+
+    fn render_record_lines(&mut self, range: std::ops::Range<usize>, cx: &mut Context<Self>) -> Vec<Div> {
+        let t = Theme::get(cx).clone();
+        let Some(lines) = self.inspector.as_ref().and_then(|i| i.record_lines.as_ref()).map(|(_, l)| l.clone()) else {
+            return Vec::new();
+        };
+        range
+            .filter_map(|n| lines.get(n).map(|l| (n, l)))
+            .map(|(n, line)| {
+                let highlights = line.spans.iter().map(|(r, tok)| (r.clone(), tok.style(&t)));
+                let text = StyledText::new(line.text.clone()).with_highlights(highlights);
+                let row = div().h(t.row).whitespace_nowrap().child(text);
+                match link_in_line(&line.text) {
+                    Some(target) => self.link_row(("json", n), row, target, &t, cx),
+                    None => row,
+                }
+            })
+            .collect()
     }
 
     /// A clickable row that navigates the inspector.

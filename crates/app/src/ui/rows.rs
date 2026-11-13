@@ -78,7 +78,10 @@ fn preview(s: &str, max_chars: usize) -> String {
     out
 }
 
-pub fn row_data(e: &Event) -> RowData {
+/// Display data for one event. `max_chars` caps the text preview: shaping is
+/// the list's biggest per-frame cost, so text beyond what the column can show
+/// is never handed to the text system.
+pub fn row_data(e: &Event, max_chars: usize) -> RowData {
     let (glyph, tone) = match (e.kind, e.op) {
         (Kind::Commit, Op::Create) => ("+", Tone::Green),
         (Kind::Commit, Op::Update) => ("~", Tone::Yellow),
@@ -93,11 +96,11 @@ pub fn row_data(e: &Event) -> RowData {
         if collection.is_empty() { e.kind.as_str().into() } else { short_collection(collection).into() };
 
     let (text, text_is_ref) = if !e.text().is_empty() {
-        (preview(e.text(), 400), false)
+        (preview(e.text(), max_chars), false)
     } else if !e.field(Field::Name).is_empty() {
-        (preview(e.field(Field::Name), 200), false)
+        (preview(e.field(Field::Name), max_chars), false)
     } else if !e.field(Field::Subject).is_empty() {
-        (e.field(Field::Subject).trim_start_matches("at://").to_owned(), true)
+        (preview(e.field(Field::Subject).trim_start_matches("at://"), max_chars), true)
     } else if e.kind == Kind::Account {
         let status = e.field(Field::Aux);
         let active = if e.flags.contains(Flags::ACTIVE) { "active" } else { "inactive" };
@@ -120,14 +123,16 @@ pub fn row_data(e: &Event) -> RowData {
     }
 
     let did = e.did.to_string();
+    let did = short_did(&did);
+    let time = clock(e.time_us);
     RowData {
         id: e.id,
-        time: clock(e.time_us).into(),
+        time: time.into(),
         glyph,
         tone,
         what,
         collection,
-        did: short_did(&did).to_owned().into(),
+        did: did.to_owned().into(),
         text: text.into(),
         text_is_ref,
         marks,
@@ -332,7 +337,7 @@ mod tests {
         let post = ev(
             r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1786603663959305,"kind":"commit","commit":{"operation":"create","collection":"app.bsky.feed.post","rkey":"3k","record":{"text":"line one\nline two","reply":{"parent":{"uri":"at://x/y/z"}},"embed":{"images":[{"alt":""}]}}}}"#,
         );
-        let r = row_data(&post);
+        let r = row_data(&post, 400);
         assert_eq!((r.glyph, r.tone), ("+", Tone::Green));
         assert_eq!(r.what.as_ref(), "feed.post");
         assert_eq!(r.collection, "app.bsky.feed.post");
@@ -345,7 +350,7 @@ mod tests {
         let like = ev(
             r#"{"did":"did:web:example.com","time_us":1,"kind":"commit","commit":{"operation":"delete","collection":"com.example.thing","rkey":"3k","record":{"subject":{"uri":"at://did:plc:abc/app.bsky.feed.post/3x"}}}}"#,
         );
-        let r = row_data(&like);
+        let r = row_data(&like, 400);
         assert_eq!((r.glyph, r.what.as_ref(), r.did.as_ref()), ("-", "com.example.thing", "web:example.com"));
         assert_eq!(r.text.as_ref(), "did:plc:abc/app.bsky.feed.post/3x");
         assert!(r.text_is_ref);
@@ -353,13 +358,13 @@ mod tests {
         let id = ev(
             r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"identity","identity":{"handle":"alice.test"}}"#,
         );
-        let r = row_data(&id);
+        let r = row_data(&id, 400);
         assert_eq!((r.glyph, r.what.as_ref(), r.text.as_ref(), r.collection), ("@", "identity", "alice.test", ""));
 
         let acct = ev(
             r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"account","account":{"active":false,"status":"takendown"}}"#,
         );
-        assert_eq!(row_data(&acct).text.as_ref(), "inactive takendown");
+        assert_eq!(row_data(&acct, 400).text.as_ref(), "inactive takendown");
     }
 
     #[test]

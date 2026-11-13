@@ -219,6 +219,8 @@ pub struct Vortex {
     kinds: [FacetCount; 4],
     status: ConnStatus,
     seen_store: u64,
+    /// (len, generation, dropped_front) of the view at the last check.
+    view_sig: (usize, u64, u64),
     seen_log: u64,
     seen_status: u64,
     ticks: u64,
@@ -358,6 +360,7 @@ impl Vortex {
             kinds: Default::default(),
             status: ConnStatus::default(),
             seen_store: 0,
+            view_sig: (usize::MAX, 0, 0),
             seen_log: 0,
             seen_status: 0,
             ticks: 0,
@@ -398,14 +401,24 @@ impl Vortex {
 
     fn tick(&mut self, cx: &mut Context<Self>) {
         self.ticks += 1;
-        // The welcome logo turns; redraw at the tick rate while it is shown.
-        let mut dirty = self.show_welcome;
+        // The welcome logo turns slowly; 15 fps is plenty.
+        let mut dirty = self.show_welcome && self.ticks % 2 == 0;
         let (store, log, status) =
             (self.engine.store.version(), self.engine.log.version(), self.engine.status_version());
-        if (store, log, status) != (self.seen_store, self.seen_log, self.seen_status) {
-            (self.seen_store, self.seen_log, self.seen_status) = (store, log, status);
+        if (log, status) != (self.seen_log, self.seen_status) {
+            (self.seen_log, self.seen_status) = (log, status);
             self.status = self.engine.status();
             dirty = true;
+        }
+        // New events only need a frame if they change what the list shows: a
+        // narrow filter often matches nothing new, and the list is hidden
+        // behind the welcome screen and the inspector. Stats and facets still
+        // refresh below every 8 ticks.
+        if store != self.seen_store {
+            self.seen_store = store;
+            if self.list_visible() && self.view_changed() {
+                dirty = true;
+            }
         }
         if self.ticks % 8 == 0 {
             self.snap = self.engine.stats.snapshot();
@@ -435,6 +448,35 @@ impl Vortex {
         if dirty {
             cx.notify();
         }
+    }
+
+    fn list_visible(&self) -> bool {
+        !self.show_welcome && self.inspector.is_none()
+    }
+
+    /// Whether the filtered view changed since the last check. Never waits
+    /// for the store: if ingest holds it, assume the view changed (true
+    /// whenever events are flowing unfiltered, where this check can't help).
+    fn view_changed(&mut self) -> bool {
+        let Some(view) = self.engine.store.try_view(Duration::ZERO) else { return true };
+        let sig = (view.len(), view.generation(), view.dropped_front());
+        drop(view);
+        std::mem::replace(&mut self.view_sig, sig) != sig
+    }
+
+    /// How many characters the text column can show, plus a little slack.
+    fn text_cols(&self, window: &Window, t: &Theme) -> usize {
+        let ui = &self.cfg.config.ui;
+        let mut w = window.viewport_size().width;
+        if ui.sidebar {
+            w -= px(ui.sidebar_width.clamp(120., 600.) + 3.);
+        }
+        if ui.detail && self.inspector.is_none() {
+            w -= px(ui.detail_width.clamp(160., 1600.) + 3.);
+        }
+        // Fixed columns (time, op, type, did, marks), their gaps, padding.
+        w -= t.ch * (12.5 + 1. + 18. + 16. + 6. + 5.) + t.pad * 2.;
+        ((w / t.ch).ceil() as isize + 2).clamp(8, 400) as usize
     }
 
     /// Debug builds only: `VORTEX_DEBUG=select|settings|badfilter` drives the
@@ -1230,13 +1272,14 @@ impl Vortex {
             .child(saved)
     }
 
-    fn render_rows(&mut self, range: std::ops::Range<usize>, cx: &mut Context<Self>) -> Vec<Div> {
+    fn render_rows(&mut self, range: std::ops::Range<usize>, window: &Window, cx: &mut Context<Self>) -> Vec<Div> {
         let t = Theme::get(cx).clone();
+        let cols = self.text_cols(window, &t);
         // Refresh from the store if it is free; otherwise reuse last frame.
         if let Some(view) = self.engine.store.try_view(VIEW_TIMEOUT) {
             self.row_cache.clear();
             self.row_cache_start = range.start;
-            self.row_cache.extend(range.clone().map_while(|i| view.row(i)).map(row_data));
+            self.row_cache.extend(range.clone().map_while(|i| view.row(i)).map(|e| row_data(e, cols)));
         }
         let selected = self.selected;
         range
@@ -1326,11 +1369,14 @@ impl Vortex {
             )))
             .child(div().flex_1().child("text"));
 
-        let list =
-            uniform_list("events", self.view_len, cx.processor(|this, range, _window, cx| this.render_rows(range, cx)))
-                .track_scroll(&self.scroll)
-                .flex_1()
-                .w_full();
+        let list = uniform_list(
+            "events",
+            self.view_len,
+            cx.processor(|this, range, window, cx| this.render_rows(range, window, cx)),
+        )
+        .track_scroll(&self.scroll)
+        .flex_1()
+        .w_full();
 
         let mut body = div()
             .flex()
@@ -1822,11 +1868,11 @@ impl Vortex {
                 .id("fps")
                 .flex_none()
                 .text_color(t.fg_faint)
-                .child(format!("{} fps {:.1}ms", self.fps.fps(), self.fps.build_ms()))
+                .child(format!("{} fps {:.1}ms", self.fps.fps(), self.fps.frame_ms()))
                 .tooltip(tip(
                     "frames",
                     None,
-                    Some("frames drawn in the last second · time to build a frame. Vortex only redraws when something changes (at most 30/s while streaming). Turn off in settings"),
+                    Some("frames drawn in the last second · CPU time per frame: building, layout and paint. Vortex only redraws when something changes (at most 30/s while streaming). Turn off in settings"),
                 ))
         });
         div()
@@ -2415,7 +2461,7 @@ impl Render for Vortex {
             root = root.child(sheet.child(words));
         }
         if let Some(start) = frame_start {
-            self.fps.end(start);
+            root = root.child(self.fps.probe(start));
         }
         root
     }
