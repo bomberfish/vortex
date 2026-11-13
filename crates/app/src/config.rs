@@ -31,6 +31,8 @@ pub struct UiConfig {
     pub radius: f32,
     /// Square window corners (macOS draws them rounded by default).
     pub square_corners: bool,
+    /// Show frames/s and frame build time in the status bar.
+    pub fps_meter: bool,
     pub sidebar: bool,
     pub sidebar_width: f32,
     pub detail: bool,
@@ -47,6 +49,7 @@ impl Default for UiConfig {
             padding: 4.0,
             radius: 2.0,
             square_corners: false,
+            fps_meter: true,
             sidebar: true,
             sidebar_width: 220.0,
             detail: true,

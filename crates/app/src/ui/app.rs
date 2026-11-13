@@ -6,6 +6,7 @@
 //! (ingest batch, re-filter) is holding it.
 
 use super::complete::{complete, Completion};
+use super::fps::FpsMeter;
 use super::input::{InputEvent, TextInput};
 use super::tip::tip;
 use super::rows::{
@@ -200,6 +201,7 @@ pub struct Vortex {
     applied_square: Option<bool>,
     /// Focus the filter input on the next render (debug hooks have no window).
     focus_filter_next_frame: bool,
+    fps: FpsMeter,
 }
 
 impl Vortex {
@@ -297,6 +299,7 @@ impl Vortex {
             measured_font: None,
             applied_square: None,
             focus_filter_next_frame: false,
+            fps: FpsMeter::default(),
         };
         this.apply_config(cx);
         if let Some(e) = this.cfg.error.clone() {
@@ -1375,7 +1378,7 @@ impl Vortex {
                 .items_center()
                 .h(t.row)
                 .gap(t.ch)
-                .child(div().w(t.ch * 12.).text_color(t.fg_dim).child(label))
+                .child(div().w(t.ch * 15.).text_color(t.fg_dim).child(label))
                 .child(self.chip("−", false, t).on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _, _, cx| {
@@ -1429,7 +1432,7 @@ impl Vortex {
                     .items_center()
                     .h(t.row)
                     .gap(t.ch)
-                    .child(div().w(t.ch * 12.).flex_none().text_color(t.fg_dim).child("font"))
+                    .child(div().w(t.ch * 15.).flex_none().text_color(t.fg_dim).child("font"))
                     .child(
                         div()
                             .flex()
@@ -1462,7 +1465,7 @@ impl Vortex {
                         .items_center()
                         .h(t.row)
                         .gap(t.ch)
-                        .child(div().w(t.ch * 12.).flex_none().text_color(t.fg_dim).child("corners"))
+                        .child(div().w(t.ch * 15.).flex_none().text_color(t.fg_dim).child("window corners"))
                         .children([("round", false), ("square", true)].map(|(label, sq)| {
                             self.chip(label, ui.square_corners == sq, t).on_mouse_down(
                                 MouseButton::Left,
@@ -1474,6 +1477,24 @@ impl Vortex {
                         })),
                 )
             })
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(t.row)
+                    .gap(t.ch)
+                    .child(div().w(t.ch * 15.).flex_none().text_color(t.fg_dim).child("fps meter"))
+                    .children([("on", true), ("off", false)].map(|(label, on)| {
+                        self.chip(label, ui.fps_meter == on, t).on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, _, cx| {
+                                this.cfg.config.ui.fps_meter = on;
+                                this.fps.reset();
+                                this.config_changed(cx);
+                            }),
+                        )
+                    })),
+            )
             .child(stepper("buffer", fmt_count(self.cfg.config.buffer.events as u64), t, cx, |v, d| {
                 let e = v.cfg.config.buffer.events;
                 v.cfg.config.buffer.events = if d > 0.0 { (e * 2).min(8_000_000) } else { (e / 2).max(25_000) };
@@ -1516,6 +1537,18 @@ impl Vortex {
             right.push_str(&format!("queue {}  ", fmt_count(self.snap.queue_depth as u64)));
         }
         right.push_str(&format!("{} total", fmt_count(self.snap.events)));
+        let fps = self.cfg.config.ui.fps_meter.then(|| {
+            div()
+                .id("fps")
+                .flex_none()
+                .text_color(t.fg_faint)
+                .child(format!("{} fps {:.1}ms", self.fps.fps(), self.fps.build_ms()))
+                .tooltip(tip(
+                    "frames",
+                    None,
+                    Some("frames drawn in the last second · time to build a frame. Vortex only redraws when something changes (at most 30/s while streaming). Turn off in settings"),
+                ))
+        });
         div()
             .flex()
             .flex_none()
@@ -1528,6 +1561,7 @@ impl Vortex {
             .border_color(t.border)
             .child(div().flex_1().min_w_0().truncate().text_color(color).child(text))
             .child(div().flex_none().text_color(t.fg_faint).child(right))
+            .children(fps)
     }
 
     fn resize_handle(&self, pane: Pane, t: &Theme) -> impl IntoElement {
@@ -1769,6 +1803,7 @@ impl Focusable for Vortex {
 
 impl Render for Vortex {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let frame_start = self.cfg.config.ui.fps_meter.then(|| self.fps.begin());
         if std::mem::take(&mut self.focus_filter_next_frame) {
             window.focus(&self.filter_input.focus_handle(cx), cx);
         }
@@ -1894,6 +1929,9 @@ impl Render for Vortex {
             .child(self.render_status_bar(&t));
         if self.show_settings {
             root = root.child(self.render_settings(&t, cx));
+        }
+        if let Some(start) = frame_start {
+            self.fps.end(start);
         }
         root
     }

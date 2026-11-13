@@ -103,6 +103,7 @@ line_height = 1.4
 padding = 4.0
 radius = 2.0
 square_corners = false     # macOS: square window corners
+fps_meter = true           # frames/s and frame build time in the status bar
 
 [colors]                   # override any slot of the active theme
 accent = "#ff8800"
