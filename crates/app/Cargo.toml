@@ -1,0 +1,9 @@
+[package]
+name = "vortex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vortex-core = { path = "../core" }
+gpui-kit = "0.9.1"
