@@ -402,7 +402,7 @@ impl Vortex {
     fn tick(&mut self, cx: &mut Context<Self>) {
         self.ticks += 1;
         // The welcome logo turns slowly; 15 fps is plenty.
-        let mut dirty = self.show_welcome && self.ticks % 2 == 0;
+        let mut dirty = self.show_welcome && self.ticks.is_multiple_of(2);
         let (store, log, status) =
             (self.engine.store.version(), self.engine.log.version(), self.engine.status_version());
         if (log, status) != (self.seen_log, self.seen_status) {
@@ -420,13 +420,13 @@ impl Vortex {
                 dirty = true;
             }
         }
-        if self.ticks % 8 == 0 {
+        if self.ticks.is_multiple_of(8) {
             self.snap = self.engine.stats.snapshot();
             self.rates = self.sampler.sample(self.snap);
             self.refresh_facets();
             dirty = true;
         }
-        if self.ticks % 30 == 0 {
+        if self.ticks.is_multiple_of(30) {
             if self.cfg_dirty {
                 self.cfg_dirty = false;
                 self.cfg.save();

@@ -26,10 +26,13 @@ pub(super) struct Inspector {
     record_lines: Option<(String, Arc<Vec<JsonLine>>)>,
     /// Collection rows built from the loaded pages, keyed by collection URI
     /// and how many pages had loaded; rebuilt only when another page arrives.
-    coll_rows: Option<((String, usize), Arc<Vec<CollRow>>)>,
+    coll_rows: Option<(CollKey, Arc<Vec<CollRow>>)>,
     record_scroll: UniformListScrollHandle,
     coll_scroll: UniformListScrollHandle,
 }
+
+/// Which collection, and how many of its pages had loaded.
+type CollKey = (String, usize);
 
 /// One record in a collection listing, prepared for display.
 pub(super) struct CollRow {
