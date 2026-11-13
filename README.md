@@ -71,6 +71,25 @@ events. With `srv` on, the part of the query the server can evaluate (kinds,
 collections, DIDs) is pushed down to Jetstream, so a narrow query costs almost
 no bandwidth; turn it off to keep the full stream buffered for later queries.
 
+## Command center
+
+- **Welcome** (on launch; `ui.welcome = false` to skip): connect, replay,
+  firehose, inspect, settings.
+- **Command palette** (`⌘P`): every command by name; paste a handle, DID,
+  `at://` URI, bsky.app or pdsls link to inspect it.
+- **Detail lookups**: selecting an event fetches the author's profile and PDS,
+  the post it likes/reposts/replies to/quotes (with counts), the account it
+  follows/blocks, and the post's own counts. Click any of them to inspect.
+- **Inspector** (`i`): a pdsls-style browser. Repo: handle, DID, PDS, aliases,
+  signing key, profile, collections, PLC history (handle/PDS changes), and
+  backlinks. Collections page through records; records show CID, counts, JSON
+  with clickable references, and backlinks. `⌘[` `⌘]` back/forward, `⌘↑` up,
+  `esc` back to the stream.
+
+Lookups are read-only and go to the public AppView (`public.api.bsky.app`),
+`plc.directory`, the account's own PDS, and constellation
+(`constellation.microcosm.blue`) for backlinks.
+
 ## Keys
 
 | | |
@@ -80,6 +99,8 @@ no bandwidth; turn it off to keep the full stream buffered for later queries.
 | `space` | tail on/off |
 | `c` `u` `o` | copy JSON / copy AT-URI / open in browser |
 | `p` | open the record (or repo) on pdsls.dev |
+| `i` | inspect the selected record / repo |
+| `⌘P` | command palette |
 | `r` | scroll the list back to the selected event (`row` in the detail pane) |
 | `⌘K` | clear buffer |
 | `⌘B` `⌘I` | sidebar / detail pane |
@@ -104,6 +125,7 @@ padding = 4.0
 radius = 2.0
 square_corners = false     # macOS: square window corners
 fps_meter = true           # frames/s and frame build time in the status bar
+welcome = true             # welcome screen on launch
 
 [colors]                   # override any slot of the active theme
 accent = "#ff8800"

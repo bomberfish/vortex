@@ -7,6 +7,8 @@
 
 mod inspect;
 mod lookup;
+mod palette;
+mod welcome;
 
 use super::complete::{complete, Completion};
 use super::fps::FpsMeter;
@@ -61,6 +63,7 @@ actions!(
         OpenInBrowser,
         OpenInPdsls,
         InspectSelected,
+        OpenPalette,
         InspectBack,
         InspectForward,
         InspectUp,
@@ -113,6 +116,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("r", RevealSelected, list),
         KeyBinding::new("p", OpenInPdsls, list),
         KeyBinding::new("i", InspectSelected, list),
+        KeyBinding::new("cmd-p", OpenPalette, root),
+        KeyBinding::new("cmd-shift-p", OpenPalette, root),
         KeyBinding::new("cmd-[", InspectBack, root),
         KeyBinding::new("cmd-]", InspectForward, root),
         KeyBinding::new("cmd-up", InspectUp, root),
@@ -212,6 +217,8 @@ pub struct Vortex {
     applied_square: Option<bool>,
     /// Focus the filter input on the next render (debug hooks have no window).
     focus_filter_next_frame: bool,
+    /// Open the palette with this text on the next render (debug hooks).
+    palette_next_frame: Option<String>,
     fps: FpsMeter,
     client: Arc<crate::atp::Client>,
     lookups: std::collections::HashMap<String, lookup::Fetch>,
@@ -219,12 +226,32 @@ pub struct Vortex {
     context_gen: u64,
     inspector: Option<inspect::Inspector>,
     show_welcome: bool,
+    palette_open: bool,
+    palette_ix: usize,
+    palette_input: Entity<TextInput>,
 }
 
 impl Vortex {
     pub fn new(engine: Arc<Engine>, cfg: ConfigFile, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter_input = cx.new(|cx| TextInput::new("filter  ·  type:post lang:en has:media  ·  ? for help", cx));
         let font_input = cx.new(|cx| TextInput::new("font family", cx));
+        let palette_input = cx.new(|cx| TextInput::new("command, handle, DID or at:// URI", cx));
+        cx.subscribe_in(&palette_input, window, |this, _, ev: &InputEvent, window, cx| match ev {
+            InputEvent::Change => {
+                this.palette_ix = 0;
+                cx.notify();
+            }
+            InputEvent::Submit => this.run_palette(None, window, cx),
+            InputEvent::Cancel => this.close_palette(window, cx),
+            InputEvent::Up | InputEvent::Down => {
+                let n = this.palette_entries(cx).len().max(1);
+                this.palette_ix =
+                    if *ev == InputEvent::Up { (this.palette_ix + n - 1) % n } else { (this.palette_ix + 1) % n };
+                cx.notify();
+            }
+            InputEvent::Complete => {}
+        })
+        .detach();
         let query = cfg.config.filter.query.clone();
         filter_input.update(cx, |i, cx| i.set_text(&query, cx));
         font_input.update(cx, |i, cx| i.set_text(&cfg.config.ui.font, cx));
@@ -317,18 +344,23 @@ impl Vortex {
             measured_font: None,
             applied_square: None,
             focus_filter_next_frame: false,
+            palette_next_frame: None,
             fps: FpsMeter::default(),
             client: Arc::new(crate::atp::Client::new()),
             lookups: Default::default(),
             context_gen: 0,
             inspector: None,
             show_welcome: false,
+            palette_open: false,
+            palette_ix: 0,
+            palette_input,
         };
         this.apply_config(cx);
         if let Some(e) = this.cfg.error.clone() {
             this.engine.log.error(format!("config: {e}"));
         }
         this.filter_changed(true, cx);
+        this.show_welcome = this.cfg.config.ui.welcome;
         if this.cfg.config.source.autoconnect {
             this.connect(cx);
         }
@@ -393,6 +425,10 @@ impl Vortex {
             }
             Ok("settings") => self.show_settings = true,
             Ok("badfilter") => self.set_query("type:post lnag:en (has:media", cx),
+            Ok(v) if v.starts_with("palette:") => {
+                self.show_welcome = false;
+                self.palette_next_frame = Some(v["palette:".len()..].to_owned());
+            }
             // `inspect:<target>[#history|#backlinks]`
             Ok(v) if v.starts_with("inspect:") => {
                 let (target, tab) = v["inspect:".len()..].split_once('#').unwrap_or((&v["inspect:".len()..], ""));
@@ -1137,9 +1173,7 @@ impl Vortex {
         range
             .map(|i| {
                 let row = i.checked_sub(self.row_cache_start).and_then(|o| self.row_cache.get(o));
-                let Some(r) = row else {
-                    return div().h(t.row).w_full();
-                };
+                let Some(r) = row else { return div().h(t.row).w_full() };
                 let id = r.id;
                 let is_sel = selected == Some(id);
                 let hover = t.bg_hover;
@@ -1301,6 +1335,7 @@ impl Vortex {
                 ("⌘B ⌘I", "sidebar / detail"),
                 ("⌘T ⌘= ⌘-", "theme / font size"),
                 ("⌘,", "settings"),
+                ("⌘P", "command palette · inspect anything"),
             ];
             help = help.child(div().h(t.row));
             for (k, v) in keys {
@@ -1743,6 +1778,11 @@ impl Vortex {
     }
 
     fn deselect(&mut self, _: &Deselect, _: &mut Window, cx: &mut Context<Self>) {
+        if self.show_welcome {
+            self.show_welcome = false;
+            cx.notify();
+            return;
+        }
         if self.inspector.is_some() && !self.show_settings && !self.show_help {
             self.close_inspector(cx);
             return;
@@ -1846,6 +1886,14 @@ impl Vortex {
             .and_then(|u| crate::atp::parse_target(&u))
             .unwrap_or_else(|| crate::atp::AtTarget::repo(d.event.did.to_string()));
         self.inspect(target, cx);
+    }
+
+    fn on_open_palette(&mut self, _: &OpenPalette, window: &mut Window, cx: &mut Context<Self>) {
+        if self.palette_open {
+            self.close_palette(window, cx);
+        } else {
+            self.open_palette(window, cx);
+        }
     }
 
     fn on_inspect_back(&mut self, _: &InspectBack, _: &mut Window, cx: &mut Context<Self>) {
@@ -1955,6 +2003,10 @@ impl Focusable for Vortex {
 impl Render for Vortex {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let frame_start = self.cfg.config.ui.fps_meter.then(|| self.fps.begin());
+        if let Some(text) = self.palette_next_frame.take() {
+            self.open_palette(window, cx);
+            self.palette_input.update(cx, |i, cx| i.set_text(&text, cx));
+        }
         if std::mem::take(&mut self.focus_filter_next_frame) {
             window.focus(&self.filter_input.focus_handle(cx), cx);
         }
@@ -2020,17 +2072,21 @@ impl Render for Vortex {
 
         let ui = self.cfg.config.ui.clone();
         let mut main = div().flex().flex_1().min_h_0().w_full();
-        if ui.sidebar {
-            main = main.child(self.render_sidebar(&t, cx)).child(self.resize_handle(Pane::Sidebar, &t));
-        }
-        self.prepare_inspector();
-        if self.inspector.is_some() {
-            main = main.child(self.render_inspector(&t, cx));
+        if self.show_welcome {
+            main = main.child(self.render_welcome(&t, cx));
         } else {
-            main = main.child(self.render_list(&t, cx));
-        }
-        if ui.detail && self.inspector.is_none() {
-            main = main.child(self.resize_handle(Pane::Detail, &t)).child(self.render_detail(&t, cx));
+            if ui.sidebar {
+                main = main.child(self.render_sidebar(&t, cx)).child(self.resize_handle(Pane::Sidebar, &t));
+            }
+            self.prepare_inspector();
+            if self.inspector.is_some() {
+                main = main.child(self.render_inspector(&t, cx));
+            } else {
+                main = main.child(self.render_list(&t, cx));
+            }
+            if ui.detail && self.inspector.is_none() {
+                main = main.child(self.resize_handle(Pane::Detail, &t)).child(self.render_detail(&t, cx));
+            }
         }
 
         let mut root = div()
@@ -2069,6 +2125,7 @@ impl Render for Vortex {
             .on_action(cx.listener(Self::open_in_pdsls))
             .on_action(cx.listener(Self::inspect_selected))
             .on_action(cx.listener(Self::on_inspect_back))
+            .on_action(cx.listener(Self::on_open_palette))
             .on_action(cx.listener(Self::on_inspect_forward))
             .on_action(cx.listener(Self::on_inspect_up))
             .on_action(cx.listener(Self::quit))
@@ -2090,6 +2147,9 @@ impl Render for Vortex {
             .child(self.render_status_bar(&t));
         if self.show_settings {
             root = root.child(self.render_settings(&t, cx));
+        }
+        if self.palette_open {
+            root = root.child(self.render_palette(&t, cx));
         }
         if let Some(start) = frame_start {
             self.fps.end(start);
