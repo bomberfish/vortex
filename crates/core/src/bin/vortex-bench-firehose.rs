@@ -6,7 +6,10 @@
 //! ```text
 //! vortex-bench-firehose capture FILE [--frames 200000] [--rewind 300000] [--host HOST]
 //! vortex-bench-firehose bench FILE [--runs 7] [--skip N] [--limit N]
+//! vortex-bench-firehose profile FILE [--runs 7] [--skip N] [--limit N]
 //! ```
+//!
+//! `profile` loops only the end-to-end decode, for a sampling profiler.
 //!
 //! The capture format is a sequence of `u32 LE length || frame bytes`.
 //! `--skip`/`--limit` replay a slice of the file; a couple of thousand frames
@@ -26,6 +29,7 @@ use vortex_core::decode::firehose::decode_firehose_frame;
 use vortex_core::decode::frame::decode_json_frame;
 use vortex_core::decode::Decoded;
 use vortex_core::event::{Event, EventBuilder};
+use vortex_core::json::Scanner;
 
 fn die(msg: impl std::fmt::Display) -> ! {
     eprintln!("vortex-bench-firehose: {msg}");
@@ -376,6 +380,17 @@ fn bench(path: &str, runs: usize, skip: usize, limit: usize, only_total: bool) {
         out
     });
     line("json extract + event build", d);
+
+    // 5b. The scanner alone: tokenising the text without extracting anything.
+    // This is the most that extracting straight from CBOR could save.
+    let (d, _) = best_of(runs, || {
+        let mut ok = 0usize;
+        for r in &raws {
+            ok += Scanner::new(r).skip().is_ok() as usize;
+        }
+        ok
+    });
+    line("json scan only (no extraction)", d);
 }
 
 fn main() {

@@ -177,6 +177,17 @@ noted):
 | re-filter 140k buffered events (parallel) | 0.4–6 ms |
 | 10 min replay (214k events) end to end | ~2.5 s, network-bound |
 
+`vortex-bench-firehose` on 150k captured relay frames (5.5 KB per frame,
+Apple Silicon, one thread; `capture FILE` then `bench FILE`):
+
+| stage | cost |
+| --- | --- |
+| firehose frame → events, end to end | ~1.0 µs/event (≈1 M events/s, ≈5 GB/s of wire) |
+| same, frames cold in memory | ~1.6 µs/event |
+| CBOR envelope + CAR walk | ~0.25 µs/event |
+| record CBOR → JSON | ~0.14 µs/event (≈1.9 GB/s) |
+| JSON extract + event build | ~0.41 µs/event |
+
 The live network is a few hundred events per second; the headroom is for
 replay and for re-filtering large buffers interactively.
 
