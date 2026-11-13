@@ -53,6 +53,7 @@ actions!(
         CopyJson,
         CopyUri,
         OpenInBrowser,
+        RevealSelected,
         Quit,
     ]
 );
@@ -98,6 +99,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("u", CopyUri, list),
         KeyBinding::new("o", OpenInBrowser, list),
         KeyBinding::new("enter", OpenInBrowser, list),
+        KeyBinding::new("r", RevealSelected, list),
     ]);
 }
 
@@ -1045,6 +1047,7 @@ impl Vortex {
                 ("g G", "first / last"),
                 ("space", "tail on/off"),
                 ("c u o", "copy json / copy uri / open"),
+                ("r", "scroll to selected row"),
                 ("⌘K", "clear"),
                 ("⌘B ⌘I", "sidebar / detail"),
                 ("⌘T ⌘= ⌘-", "theme / font size"),
@@ -1111,6 +1114,10 @@ impl Vortex {
         let collection = e.collection_str();
         let mut actions = div().flex().flex_wrap().gap(t.pad).pt(t.pad);
         actions = actions
+            .child(self.chip("row", false, t).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| this.reveal_selected(&RevealSelected, window, cx)),
+            ))
             .child(self.chip("json", false, t).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.copy_json(&CopyJson, window, cx)),
@@ -1474,6 +1481,21 @@ impl Vortex {
         }
     }
 
+    /// Scroll the event list to the selected row and stop tailing.
+    fn reveal_selected(&mut self, _: &RevealSelected, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.selected else { return };
+        let ix = self.engine.store.view().index_of(id);
+        match ix {
+            Some(ix) => {
+                self.follow = false;
+                self.scroll.scroll_to_item(ix, ScrollStrategy::Center);
+                window.focus(&self.focus, cx);
+            }
+            None => self.engine.log.info("selected event is no longer in the list"),
+        }
+        cx.notify();
+    }
+
     fn quit(&mut self, _: &Quit, _: &mut Window, cx: &mut Context<Self>) {
         self.cfg.save();
         cx.quit();
@@ -1655,6 +1677,7 @@ impl Render for Vortex {
             .on_action(cx.listener(Self::copy_json))
             .on_action(cx.listener(Self::copy_uri))
             .on_action(cx.listener(Self::open_in_browser))
+            .on_action(cx.listener(Self::reveal_selected))
             .on_action(cx.listener(Self::quit))
             .on_drag_move(cx.listener(|this, ev: &DragMoveEvent<ResizeDrag>, window, cx| {
                 let x = ev.event.position.x;
