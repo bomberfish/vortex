@@ -4,6 +4,7 @@ pub mod car;
 pub mod cbor;
 pub mod firehose;
 pub mod frame;
+pub mod streams;
 pub mod zstd_dict;
 
 use crate::event::{Event, EventBuilder};
@@ -20,6 +21,10 @@ pub enum Wire {
     JetstreamV1,
     /// `com.atproto.sync.subscribeRepos` (DAG-CBOR + CAR).
     Firehose,
+    /// Spacedust link stream (JSON).
+    Spacedust,
+    /// plc.directory operation stream (JSON).
+    Plc,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -107,6 +112,16 @@ impl FrameDecoder {
         match wire {
             Wire::Firehose => {
                 firehose::decode_firehose_frame(payload, &mut self.builder, &mut self.transcode, out)?;
+                Ok(Meta::default())
+            }
+            Wire::Spacedust | Wire::Plc => {
+                let text = std::str::from_utf8(payload).map_err(|_| DecodeError::Utf8)?;
+                let decoded = if wire == Wire::Plc {
+                    streams::decode_plc_frame(text, &mut self.builder)?
+                } else {
+                    streams::decode_spacedust_frame(text, &mut self.builder)?
+                };
+                out.push(decoded);
                 Ok(Meta::default())
             }
             Wire::JetstreamV1 | Wire::JetstreamV2 => {

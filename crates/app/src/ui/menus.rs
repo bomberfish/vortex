@@ -71,6 +71,8 @@ pub fn install(cx: &mut App) {
                 MenuItem::action("Jetstream", SourceJetstream),
                 MenuItem::action("Jetstream v1 (legacy)", SourceJetstreamV1),
                 MenuItem::action("Relay Firehose", SourceFirehose),
+                MenuItem::action("Spacedust (Links)", SourceSpacedust),
+                MenuItem::action("PLC Directory", SourcePlc),
             ])),
             MenuItem::submenu(Menu::new("Start From").items([
                 MenuItem::action("Live", ReplayLive),

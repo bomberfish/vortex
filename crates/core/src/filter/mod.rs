@@ -59,6 +59,27 @@ impl Filter {
         matches!(self.root, Node::False)
     }
 
+    /// This filter, also hiding identity events whose PDS is one of
+    /// `hosts` (bulk sign-ups flooding the PLC stream). The query text and
+    /// its server-side part are unchanged.
+    pub fn excluding_pds(self, hosts: &[String]) -> Filter {
+        let hosts: Vec<&str> = hosts.iter().map(|h| h.trim()).filter(|h| !h.is_empty()).collect();
+        if hosts.is_empty() {
+            return self;
+        }
+        // Built directly, not optimized: the optimizer assumes only commits
+        // carry links, which PLC identity events (with their PDS) don't obey.
+        let spam = Node::And(
+            vec![
+                Node::Kind(crate::event::Kind::Identity.mask()),
+                Node::Domain(hosts.iter().map(|h| h.to_ascii_lowercase().into()).collect()),
+            ]
+            .into(),
+        );
+        let root = Node::And(vec![self.root, Node::Not(Box::new(spam))].into());
+        Filter { root, ..self }
+    }
+
     /// The server-side filter this query implies.
     pub fn pushdown(&self) -> &Pushdown {
         &self.pushdown

@@ -93,6 +93,8 @@ impl Vortex {
                 cmd: Cmd::Source(SourceKind::JetstreamV1),
             },
             Entry { label: "source: relay firehose".into(), keys: "", cmd: Cmd::Source(SourceKind::Firehose) },
+            Entry { label: "source: spacedust (links)".into(), keys: "", cmd: Cmd::Source(SourceKind::Spacedust) },
+            Entry { label: "source: plc directory".into(), keys: "", cmd: Cmd::Source(SourceKind::Plc) },
         ];
         for (label, secs) in REWINDS {
             let label = if secs == 0 { "live: start from now".to_owned() } else { format!("replay the last {label}") };
@@ -198,7 +200,22 @@ impl Vortex {
             self.cfg.config.source.hosts.clear();
             self.cfg_dirty = true;
         }
+        self.sync_url_input(cx);
         self.reconnect_fresh(cx);
+        // The PLC spam rule applies only to PLC.
+        self.filter_changed(true, cx);
+    }
+
+    /// Show the current source's endpoint (or its default) in settings.
+    pub(super) fn sync_url_input(&mut self, cx: &mut Context<Self>) {
+        let src = &self.cfg.config.source;
+        let kind = src.kind();
+        let text = src.url_for(kind).unwrap_or("").to_owned();
+        let placeholder = format!("default: {}", kind.default_hosts().first().copied().unwrap_or(""));
+        self.url_input.update(cx, |i, cx| {
+            i.set_placeholder(placeholder, cx);
+            i.set_text(&text, cx);
+        });
     }
 
     pub(super) fn render_palette(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {

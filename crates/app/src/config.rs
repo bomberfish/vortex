@@ -64,9 +64,10 @@ impl Default for UiConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SourceSettings {
-    /// `jetstream`, `jetstream-v1` or `firehose`.
+    /// `jetstream`, `jetstream-v1`, `firehose`, `spacedust` or `plc`.
     pub kind: String,
     /// Hosts to use instead of the defaults for `kind` (tried in order).
+    /// Cleared when the source changes; `url` is kept per source.
     pub hosts: Vec<String>,
     /// zstd compression (Jetstream).
     pub compress: bool,
@@ -74,6 +75,12 @@ pub struct SourceSettings {
     pub pushdown: bool,
     /// Connect on launch.
     pub autoconnect: bool,
+    /// PLC: hide identity events from PDSes that create accounts in bulk.
+    pub hide_plc_spam: bool,
+    pub plc_spam_hosts: Vec<String>,
+    /// Per-source endpoint, keyed by source name: a host, `wss://host`, or
+    /// a full endpoint URL. Overrides `hosts`; unset means the defaults.
+    pub url: BTreeMap<String, String>,
 }
 
 impl Default for SourceSettings {
@@ -84,6 +91,9 @@ impl Default for SourceSettings {
             compress: true,
             pushdown: true,
             autoconnect: true,
+            hide_plc_spam: true,
+            plc_spam_hosts: vec!["pds.trump.com".into()],
+            url: BTreeMap::new(),
         }
     }
 }
@@ -93,10 +103,26 @@ impl SourceSettings {
         SourceKind::parse(&self.kind).unwrap_or(SourceKind::JetstreamV2)
     }
 
+    /// The user's endpoint for `kind`, if set.
+    pub fn url_for(&self, kind: SourceKind) -> Option<&str> {
+        self.url.get(kind.label()).map(|u| u.trim()).filter(|u| !u.is_empty())
+    }
+
+    /// PDS hosts whose identity events are hidden, given the current source.
+    pub fn hidden_pds(&self) -> Vec<String> {
+        if self.kind() == SourceKind::Plc && self.hide_plc_spam {
+            self.plc_spam_hosts.clone()
+        } else {
+            Vec::new()
+        }
+    }
+
     pub fn to_source(&self, start: StartFrom) -> SourceConfig {
         let kind = self.kind();
         let mut s = SourceConfig::new(kind);
-        if !self.hosts.is_empty() {
+        if let Some(url) = self.url_for(kind) {
+            s.hosts = vec![url.to_owned()];
+        } else if !self.hosts.is_empty() {
             s.hosts = self.hosts.clone();
         }
         s.compress = self.compress && kind.supports_compression();

@@ -190,8 +190,8 @@ impl Manager {
             StartFrom::Live => None,
             StartFrom::Cursor(c) => Some(c),
             StartFrom::Rewind(d) => {
-                if cfg.kind == SourceKind::Firehose {
-                    self.ctx.log.error("firehose cannot rewind by time; starting live");
+                if !cfg.kind.supports_rewind() {
+                    self.ctx.log.error(format!("{} cannot rewind by time; starting live", cfg.kind.label()));
                     None
                 } else {
                     // Jetstream reads cursors >= 1e15 as unix microseconds.
@@ -215,6 +215,7 @@ impl Manager {
             SourceKind::JetstreamV2 if time > 0 => Some((time, false)),
             SourceKind::JetstreamV1 if time > 0 => Some((time, true)),
             SourceKind::Firehose if same_host && seq > 0 => Some((seq, true)),
+            SourceKind::Plc if seq > 0 => Some((seq, true)),
             _ => None,
         }
     }

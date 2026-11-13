@@ -116,6 +116,11 @@ pub struct TextInput {
 impl EventEmitter<InputEvent> for TextInput {}
 
 impl TextInput {
+    pub fn set_placeholder(&mut self, placeholder: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.placeholder = placeholder.into();
+        cx.notify();
+    }
+
     pub fn new(placeholder: impl Into<SharedString>, cx: &mut Context<Self>) -> Self {
         TextInput {
             focus_handle: cx.focus_handle(),

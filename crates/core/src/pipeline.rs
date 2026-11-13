@@ -134,6 +134,8 @@ impl Pipeline {
                             let dup = *frame_is_dup.get_or_insert_with(|| match info.wire {
                                 // v1 cursors are timestamps and may collide.
                                 Wire::JetstreamV1 => e.seq < self.floor,
+                                // No cursor at all: nothing to compare.
+                                Wire::Spacedust => false,
                                 _ => e.seq <= self.floor,
                             });
                             if dup {

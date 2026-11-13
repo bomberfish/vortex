@@ -1,15 +1,17 @@
 # vortex
 
 A fast, information-dense desktop command center for the AT Protocol: watch
-Bluesky's Jetstream or the relay firehose live, filter it with a real query
+Bluesky's Jetstream, the relay firehose, Spacedust's link stream or the PLC
+directory live, filter it with a real query
 language, and inspect any account or record the way
 [pdsls](https://pdsls.dev) does. Rust and [GPUI](https://gpui.rs).
 
 ![The live event list with sidebar facets and a selected post's lookups](docs/screenshots/stream.png)
 
-- **Every source, one model.** Jetstream (v2 and legacy) and the raw relay
-  firehose (DAG-CBOR and CAR, decoded locally) all become the same events,
-  so every filter works everywhere.
+- **Every source, one model.** Jetstream (v2 and legacy), the raw relay
+  firehose (DAG-CBOR and CAR, decoded locally), Spacedust's backlinks and
+  the PLC directory's operations all become the same events, so every
+  filter works everywhere.
 - **Filters that scale.** About 40 fields, regex, JSON paths, counts, time
   ranges and sampling, compiled to an optimised matcher (5–35 ns per event)
   and pushed to the server where possible. Changing a query re-filters
@@ -60,9 +62,21 @@ switch to the relay firehose, or inspect an account. Turn it off with the
 ### The stream
 
 The **top bar** is the connection (click to connect or disconnect), the
-source (`jetstream`, `v1`, `firehose`), where to start (`live`, or replay the
-last `1m` `5m` `30m` `2h`), and the `zstd` and `srv` (server filter)
-switches. On the right are events/s received and matching, bandwidth, lag,
+source, where to start (`live`, or replay the last `1m` `5m` `30m` `2h`),
+and the `zstd` and `srv` (server filter) switches. The sources, as on
+[pdsls.dev/streams](https://pdsls.dev/streams):
+
+| source | events |
+| --- | --- |
+| `jetstream`, `v1` | Jetstream: commits, identity and account events as JSON, filtered server-side |
+| `firehose` | the relay's `subscribeRepos`, decoded locally |
+| `spacedust` | [Spacedust](https://spacedust.microcosm.blue) links between records as they're made: each is a commit event for the linking record (a like, follow, reply…) with the link target as its subject |
+| `plc` | `did:plc` operations from plc.directory as identity events: create, update or delete (tombstone), with the handle and the PDS |
+
+The PLC stream is regularly flooded by PDSes that create accounts in bulk;
+**hide spam** (on by default, saved in config) hides those PDSes'
+operations. Each source's endpoint can be changed in settings (`⌘,`): a
+host, `wss://host` or a full endpoint URL, kept per source. On the right are events/s received and matching, bandwidth, lag,
 pipeline load, the buffer (events, memory, time span) and a rate sparkline.
 Hover any of them for an explanation.
 
@@ -76,7 +90,8 @@ identity, `!` account), type, author, marks (reply, quote, images, video,
 link, labeled) and text. Tail mode (`space`) follows new events. Scrolling
 up pauses it, and `r` jumps back to the selected row.
 
-The **detail pane** shows the event and its raw JSON. A post's mentions,
+The **detail pane** shows the filter syntax and keys until something is
+selected, then the event and its raw JSON. A post's mentions,
 links and hashtags are highlighted: click to inspect the account, open the
 link, or filter by the tag. Once the selection settles it also looks up
 context: the author's profile, follower counts and PDS, and the post being
@@ -243,11 +258,13 @@ detail = true
 detail_width = 440.0
 
 [source]
-kind = "jetstream"         # jetstream | jetstream-v1 | firehose
-hosts = []                 # empty = public defaults; "ws://localhost:6008" works
+kind = "jetstream"         # jetstream | jetstream-v1 | firehose | spacedust | plc
+hosts = []                 # failover list; empty = public defaults
 compress = true            # zstd
 pushdown = true            # send the server-side part of the query
 autoconnect = true
+hide_plc_spam = true       # PLC: hide operations from these PDSes
+plc_spam_hosts = ["pds.trump.com"]
 
 [filter]
 query = ""                 # restored on launch
@@ -268,7 +285,7 @@ megabytes = 512
 pinned = 100000            # matches kept after they age out of the buffer
 ```
 
-Colors, themes and saved queries have no defaults to show; add them like
+Colors, themes, endpoints and saved queries have no defaults to show; add them like
 this:
 
 ```toml
@@ -278,6 +295,10 @@ accent = "#ff8800"
 [themes.midnight]          # define your own, then set ui.theme = "midnight"
 base = "nord"
 bg = "#0b0e14"
+
+[source.url]               # an endpoint per source (settings edits this)
+jetstream = "ws://localhost:6008"
+plc = "wss://plc.example.com/export/stream"
 
 [[filter.saved]]           # one block per saved query (the sidebar's + adds these)
 name = "japanese art"
@@ -293,7 +314,7 @@ settings panel (`⌘,`).
 ```sh
 # Stream to the terminal with the same filter language
 cargo run --release --bin vortex-tail -- 'type:post lang:ja has:media'
-#   [--source jetstream|jetstream-v1|firehose] [--host H] [--rewind 5m]
+#   [--source jetstream|jetstream-v1|firehose|spacedust|plc] [--host H] [--rewind 5m]
 #   [--cursor N] [--no-compress] [--no-pushdown] [--secs N] [--print N] [--json]
 
 # Stage timings on live Jetstream traffic

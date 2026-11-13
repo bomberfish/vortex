@@ -72,6 +72,8 @@ actions!(
         SourceJetstream,
         SourceJetstreamV1,
         SourceFirehose,
+        SourceSpacedust,
+        SourcePlc,
         ReplayLive,
         Replay1m,
         Replay5m,
@@ -215,6 +217,8 @@ pub struct Vortex {
     images_wanted: std::cell::RefCell<Vec<crate::media::Src>>,
     filter_input: Entity<TextInput>,
     font_input: Entity<TextInput>,
+    /// The current source's endpoint, in settings.
+    url_input: Entity<TextInput>,
 
     filter_error: Option<String>,
     filter_gen: u64,
@@ -289,6 +293,7 @@ impl Vortex {
     pub fn new(engine: Arc<Engine>, cfg: ConfigFile, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter_input = cx.new(|cx| TextInput::new("filter  ·  type:post lang:en has:media  ·  ? for help", cx));
         let font_input = cx.new(|cx| TextInput::new("font family", cx));
+        let url_input = cx.new(|cx| TextInput::new("", cx));
         let palette_input = cx.new(|cx| TextInput::new("command, handle, DID or at:// URI", cx));
         cx.subscribe_in(&palette_input, window, |this, _, ev: &InputEvent, window, cx| match ev {
             InputEvent::Change => {
@@ -335,6 +340,26 @@ impl Vortex {
             InputEvent::Up | InputEvent::Down => {}
         })
         .detach();
+        cx.subscribe_in(&url_input, window, |this, input, ev: &InputEvent, window, cx| match ev {
+            InputEvent::Submit => {
+                let url = input.read(cx).text().trim().to_owned();
+                let kind = this.cfg.config.source.kind().label().to_owned();
+                if url.is_empty() {
+                    this.cfg.config.source.url.remove(&kind);
+                } else {
+                    this.cfg.config.source.url.insert(kind, url);
+                }
+                this.cfg_dirty = true;
+                this.reconnect_fresh(cx);
+                window.focus(&this.focus, cx);
+            }
+            InputEvent::Cancel => {
+                this.sync_url_input(cx);
+                window.focus(&this.focus, cx);
+            }
+            _ => {}
+        })
+        .detach();
         cx.subscribe_in(&font_input, window, |this, input, ev: &InputEvent, window, cx| match ev {
             InputEvent::Submit => {
                 let font = input.read(cx).text().trim().to_owned();
@@ -367,6 +392,7 @@ impl Vortex {
             images_wanted: Default::default(),
             filter_input,
             font_input,
+            url_input,
             filter_error: None,
             completions: Vec::new(),
             completion_ix: 0,
@@ -420,6 +446,7 @@ impl Vortex {
             palette_input,
         };
         this.apply_config(cx);
+        this.sync_url_input(cx);
         if let Some(e) = this.cfg.error.clone() {
             this.engine.log.error(format!("config: {e}"));
         }
@@ -674,6 +701,7 @@ impl Vortex {
             }
         }
         let engine = self.engine.clone();
+        let hidden = self.cfg.config.source.hidden_pds();
         cx.spawn(async move |this, cx| {
             if !immediate {
                 cx.background_executor().timer(FILTER_DEBOUNCE).await;
@@ -685,7 +713,7 @@ impl Vortex {
             let query = text.clone();
             let stats = cx
                 .background_executor()
-                .spawn(async move { Filter::parse(&query).ok().map(|f| engine.set_filter(f)) })
+                .spawn(async move { Filter::parse(&query).ok().map(|f| engine.set_filter(f.excluding_pds(&hidden))) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.filter_gen == gen {
@@ -995,23 +1023,44 @@ impl Vortex {
                 SourceKind::JetstreamV2 => ("jetstream", "Jetstream: JSON, server-side filtering, replay"),
                 SourceKind::JetstreamV1 => ("v1", "legacy Jetstream /subscribe endpoint"),
                 SourceKind::Firehose => ("firehose", "relay firehose: DAG-CBOR decoded locally; unfiltered, live only"),
+                SourceKind::Spacedust => (
+                    "spacedust",
+                    "Spacedust (microcosm): links between records as they're made: likes, follows, replies, quotes…",
+                ),
+                SourceKind::Plc => ("plc", "plc.directory: did:plc operations: new accounts, handle and PDS changes"),
             };
             bar = bar.child(
                 self.chip(label, k == kind, t).id(label).tooltip(tip(label, None, Some(about))).on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _, _, cx| {
                         if this.cfg.config.source.kind() != k {
-                            this.cfg.config.source.kind = k.label().into();
-                            this.cfg.config.source.hosts.clear();
-                            this.cfg_dirty = true;
-                            this.reconnect_fresh(cx);
+                            this.switch_source(k, cx);
                         }
                     }),
                 ),
             );
         }
         bar = bar.child(self.sep(t));
-        if kind != SourceKind::Firehose {
+        if kind == SourceKind::Plc {
+            let about = format!(
+                "hide accounts created in bulk by {}, which can drown out everything else (source.plc_spam_hosts)",
+                src.plc_spam_hosts.join(", ")
+            );
+            bar = bar.child(
+                self.chip("hide spam", src.hide_plc_spam, t)
+                    .id("plc-spam")
+                    .tooltip(tip("hide spam", None, Some(&about)))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.cfg.config.source.hide_plc_spam ^= true;
+                            this.cfg_dirty = true;
+                            this.filter_changed(true, cx);
+                        }),
+                    ),
+            );
+        }
+        if kind.supports_rewind() {
             for (label, secs) in REWINDS {
                 let about = if secs == 0 {
                     "start from now".to_owned()
@@ -1488,18 +1537,8 @@ impl Vortex {
             .w(px(self.cfg.config.ui.detail_width.clamp(160., 1600.)))
             .bg(t.bg_alt);
 
-        if !self.show_help && self.detail.is_none() {
-            return pane.child(
-                div()
-                    .flex()
-                    .flex_1()
-                    .items_center()
-                    .justify_center()
-                    .text_color(t.fg_faint)
-                    .child("no selection  ·  ? syntax"),
-            );
-        }
-        if self.show_help {
+        // With nothing selected the pane shows the filter syntax.
+        if self.show_help || self.detail.is_none() {
             let mut help =
                 div().id("help").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().p(t.pad).gap(px(1.));
             for (syntax, meaning) in FIELD_HELP {
@@ -1786,6 +1825,63 @@ impl Vortex {
             .occlude()
             .child(div().text_color(t.fg_faint).child("theme"))
             .child(themes)
+            .child(
+                div()
+                    .id("set-url")
+                    .flex()
+                    .items_center()
+                    .h(t.row)
+                    .gap(t.ch)
+                    .tooltip(tip(
+                        "source endpoint",
+                        Some("↵"),
+                        Some("for the current source: a host, wss://host or a full endpoint URL (pdsls-style links work). Empty uses the public default. Kept per source"),
+                    ))
+                    .child(
+                        div()
+                            .w(t.ch * 18.)
+                            .whitespace_nowrap()
+                            .flex_none()
+                            .text_color(t.fg_dim)
+                            .child(format!("{} url", self.cfg.config.source.kind().label())),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_1()
+                            .min_w_0()
+                            .px(t.pad)
+                            .bg(t.bg)
+                            .border_1()
+                            .border_color(t.border)
+                            .rounded(t.radius)
+                            .child(self.url_input.clone()),
+                    ),
+            )
+            .child(
+                div()
+                    .id("set-plc-spam")
+                    .flex()
+                    .items_center()
+                    .h(t.row)
+                    .gap(t.ch)
+                    .tooltip(tip(
+                        "plc spam",
+                        None,
+                        Some("on the PLC stream, hide identity events from PDSes that create accounts in bulk (source.plc_spam_hosts)"),
+                    ))
+                    .child(div().w(t.ch * 18.).whitespace_nowrap().flex_none().text_color(t.fg_dim).child("plc spam"))
+                    .children([("hide", true), ("show", false)].map(|(label, on)| {
+                        self.chip(label, self.cfg.config.source.hide_plc_spam == on, t).on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, _, cx| {
+                                this.cfg.config.source.hide_plc_spam = on;
+                                this.cfg_dirty = true;
+                                this.filter_changed(true, cx);
+                            }),
+                        )
+                    })),
+            )
             .child(
                 div()
                     .flex()
@@ -2196,6 +2292,14 @@ impl Vortex {
         self.run_cmd(palette::Cmd::Source(SourceKind::Firehose), window, cx)
     }
 
+    fn menu_source_spacedust(&mut self, _: &SourceSpacedust, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_cmd(palette::Cmd::Source(SourceKind::Spacedust), window, cx)
+    }
+
+    fn menu_source_plc(&mut self, _: &SourcePlc, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_cmd(palette::Cmd::Source(SourceKind::Plc), window, cx)
+    }
+
     fn menu_replay_live(&mut self, _: &ReplayLive, window: &mut Window, cx: &mut Context<Self>) {
         self.run_cmd(palette::Cmd::Replay(0), window, cx)
     }
@@ -2522,6 +2626,8 @@ impl Render for Vortex {
             .on_action(cx.listener(Self::menu_source_jetstream))
             .on_action(cx.listener(Self::menu_source_jetstream_v1))
             .on_action(cx.listener(Self::menu_source_firehose))
+            .on_action(cx.listener(Self::menu_source_spacedust))
+            .on_action(cx.listener(Self::menu_source_plc))
             .on_action(cx.listener(Self::menu_replay_live))
             .on_action(cx.listener(Self::menu_replay_1m))
             .on_action(cx.listener(Self::menu_replay_5m))

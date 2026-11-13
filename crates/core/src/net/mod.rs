@@ -19,16 +19,28 @@ pub enum SourceKind {
     JetstreamV1,
     /// Relay firehose `com.atproto.sync.subscribeRepos`.
     Firehose,
+    /// Spacedust (microcosm): links between records as they're made.
+    Spacedust,
+    /// plc.directory's stream of `did:plc` operations.
+    Plc,
 }
 
 impl SourceKind {
-    pub const ALL: [SourceKind; 3] = [SourceKind::JetstreamV2, SourceKind::JetstreamV1, SourceKind::Firehose];
+    pub const ALL: [SourceKind; 5] = [
+        SourceKind::JetstreamV2,
+        SourceKind::JetstreamV1,
+        SourceKind::Firehose,
+        SourceKind::Spacedust,
+        SourceKind::Plc,
+    ];
 
     pub fn wire(self) -> Wire {
         match self {
             SourceKind::JetstreamV2 => Wire::JetstreamV2,
             SourceKind::JetstreamV1 => Wire::JetstreamV1,
             SourceKind::Firehose => Wire::Firehose,
+            SourceKind::Spacedust => Wire::Spacedust,
+            SourceKind::Plc => Wire::Plc,
         }
     }
 
@@ -37,6 +49,8 @@ impl SourceKind {
             SourceKind::JetstreamV2 => "jetstream",
             SourceKind::JetstreamV1 => "jetstream-v1",
             SourceKind::Firehose => "firehose",
+            SourceKind::Spacedust => "spacedust",
+            SourceKind::Plc => "plc",
         }
     }
 
@@ -45,6 +59,8 @@ impl SourceKind {
             "jetstream" | "jetstream-v2" | "v2" => SourceKind::JetstreamV2,
             "jetstream-v1" | "v1" => SourceKind::JetstreamV1,
             "firehose" | "relay" => SourceKind::Firehose,
+            "spacedust" | "links" => SourceKind::Spacedust,
+            "plc" | "plc-directory" => SourceKind::Plc,
             _ => return None,
         })
     }
@@ -54,17 +70,29 @@ impl SourceKind {
             SourceKind::JetstreamV2 => &["jetstream.us-east.bsky.network", "jetstream.us-west.bsky.network"],
             SourceKind::JetstreamV1 => &["jetstream2.us-east.bsky.network", "jetstream1.us-west.bsky.network"],
             SourceKind::Firehose => &["relay1.us-east.bsky.network", "relay1.us-west.bsky.network", "bsky.network"],
+            SourceKind::Spacedust => &["spacedust.microcosm.blue"],
+            SourceKind::Plc => &["plc.directory"],
         }
     }
 
     /// Whether the server can filter for us.
     pub fn supports_pushdown(self) -> bool {
-        !matches!(self, SourceKind::Firehose)
+        self.is_jetstream()
+    }
+
+    pub fn is_jetstream(self) -> bool {
+        matches!(self, SourceKind::JetstreamV2 | SourceKind::JetstreamV1)
+    }
+
+    /// Whether the source can start from a point in time (Jetstream's
+    /// cursors are timestamps; the others count events).
+    pub fn supports_rewind(self) -> bool {
+        self.is_jetstream()
     }
 
     /// Whether dictionary-zstd compression is available.
     pub fn supports_compression(self) -> bool {
-        !matches!(self, SourceKind::Firehose)
+        self.is_jetstream()
     }
 }
 
@@ -173,6 +201,30 @@ pub struct Request {
     pub applied: Pushdown,
 }
 
+/// The scheme and authority (plus any path prefix) of a user-supplied
+/// endpoint: a bare host gets `wss://`, and a pasted full endpoint URL loses
+/// its query and the known subscription path, which is added back per source.
+pub fn endpoint_base(host: &str) -> String {
+    const PATHS: [&str; 5] = [
+        "/xrpc/network.bsky.jetstream.subscribeEvents",
+        "/xrpc/com.atproto.sync.subscribeRepos",
+        "/export/stream",
+        "/subscribe",
+        "/",
+    ];
+    let host = host.trim();
+    let mut base = host.split(['?', '#']).next().unwrap_or(host).to_owned();
+    if !base.contains("://") {
+        base = format!("wss://{base}");
+    }
+    for p in PATHS {
+        if let Some(stripped) = base.strip_suffix(p) {
+            base = stripped.to_owned();
+        }
+    }
+    base
+}
+
 /// Build the subscription URL for a source.
 pub fn build_request(
     kind: SourceKind,
@@ -181,7 +233,7 @@ pub fn build_request(
     pushdown: &Pushdown,
     zstd_dict_id: Option<u32>,
 ) -> Request {
-    let base = if host.contains("://") { host.trim_end_matches('/').to_owned() } else { format!("wss://{host}") };
+    let base = endpoint_base(host);
     let mut q = String::new();
     let mut applied = Pushdown::default();
     match kind {
@@ -230,6 +282,18 @@ pub fn build_request(
             }
             Request { url: format!("{base}/xrpc/com.atproto.sync.subscribeRepos{q}"), applied }
         }
+        SourceKind::Spacedust => {
+            // Skip the 21 s buffer that holds links back in case they're
+            // deleted right away: a live viewer wants them now.
+            push_param(&mut q, "instant", "true");
+            Request { url: format!("{base}/subscribe{q}"), applied }
+        }
+        SourceKind::Plc => {
+            if let Some(c) = cursor {
+                push_param(&mut q, "cursor", &c.to_string());
+            }
+            Request { url: format!("{base}/export/stream{q}"), applied }
+        }
     }
 }
 
@@ -240,6 +304,19 @@ mod tests {
 
     fn pd(kinds: Option<Vec<Kind>>, colls: Option<&[&str]>, dids: Option<Vec<String>>) -> Pushdown {
         Pushdown { kinds, collections: colls.map(|c| c.iter().map(|s| s.to_string()).collect()), dids }
+    }
+
+    #[test]
+    fn endpoints_accept_hosts_and_full_urls() {
+        assert_eq!(endpoint_base("jetstream.example"), "wss://jetstream.example");
+        assert_eq!(endpoint_base("ws://localhost:6008/"), "ws://localhost:6008");
+        assert_eq!(endpoint_base("wss://jetstream1.us-east.bsky.network/subscribe?wantedCollections=x"), "wss://jetstream1.us-east.bsky.network");
+        assert_eq!(endpoint_base("wss://plc.directory/export/stream"), "wss://plc.directory");
+        assert_eq!(endpoint_base("wss://h/xrpc/network.bsky.jetstream.subscribeEvents"), "wss://h");
+        let r = build_request(SourceKind::Spacedust, "wss://spacedust.microcosm.blue/subscribe", None, &Pushdown::default(), None);
+        assert_eq!(r.url, "wss://spacedust.microcosm.blue/subscribe?instant=true");
+        let r = build_request(SourceKind::Plc, "plc.directory", Some(9), &Pushdown::default(), None);
+        assert_eq!(r.url, "wss://plc.directory/export/stream?cursor=9");
     }
 
     #[test]
