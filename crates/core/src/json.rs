@@ -221,6 +221,26 @@ impl<'a> Scanner<'a> {
         let start = self.pos + 1;
         let mut p = start;
         let mut escaped = false;
+        // Most strings are short (keys, enums, identifiers) and end within a
+        // few words; settling those inline avoids a `memchr2` call each.
+        // Anything longer, or containing an escape, takes the general loop.
+        while p - start < SHORT_SCAN {
+            let Some(c) = bytes.get(p..p + 8) else { break };
+            let w = u64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]);
+            let m = zero_bytes(w ^ (LO * b'"' as u64)) | zero_bytes(w ^ (LO * b'\\' as u64));
+            if m != 0 {
+                let end = p + (m.trailing_zeros() / 8) as usize;
+                if bytes[end] == b'"' {
+                    self.pos = end + 1;
+                    // Both ends sit on ASCII quotes, so this is a char boundary.
+                    return Ok(Str { raw: &self.src[start..end], escaped });
+                }
+                // A backslash: resume at it in the general loop.
+                p = end;
+                break;
+            }
+            p += 8;
+        }
         loop {
             match memchr2(b'"', b'\\', bytes.get(p..).unwrap_or(&[])) {
                 None => {
@@ -502,6 +522,10 @@ pub fn pretty(src: &str, indent: usize) -> String {
     out
 }
 
+/// How far [`Scanner::string_token`] looks for the closing quote before
+/// handing over to `memchr2`.
+const SHORT_SCAN: usize = 32;
+
 const LO: u64 = 0x0101_0101_0101_0101;
 const LOW7: u64 = 0x7f7f_7f7f_7f7f_7f7f;
 
@@ -761,6 +785,63 @@ mod tests {
         assert_eq!(a, b);
         assert!(p.contains("\n  \"a\": 1,"));
         assert!(p.contains("\"c\": {}"));
+    }
+
+    /// The token a byte-at-a-time scan finds: (raw contents, has escapes,
+    /// position after the closing quote), or `None` if unterminated.
+    fn naive_string_token(src: &str) -> Option<(&str, bool, usize)> {
+        let b = src.as_bytes();
+        assert_eq!(b[0], b'"');
+        let (mut p, mut escaped) = (1, false);
+        while p < b.len() {
+            match b[p] {
+                b'"' => return Some((&src[1..p], escaped, p + 1)),
+                b'\\' => {
+                    escaped = true;
+                    p += 2;
+                }
+                _ => p += 1,
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn string_tokens_match_a_naive_scan() {
+        let check = |src: &str| {
+            let mut s = Scanner::new(src);
+            match (s.str(), naive_string_token(src)) {
+                (Ok(Some(tok)), Some((raw, escaped, end))) => {
+                    assert_eq!((tok.raw(), tok.has_escapes(), s.pos()), (raw, escaped, end), "{src:?}");
+                }
+                (Err(_), None) => {}
+                (got, want) => panic!("{src:?}: {got:?} vs {want:?}"),
+            }
+        };
+        // A quote, a backslash or an escaped quote at every offset around
+        // the word-at-a-time prefix and its hand-over to memchr.
+        for len in 0..80 {
+            let body = "x".repeat(len);
+            check(&format!("\"{body}\",\"next\""));
+            check(&format!("\"{body}"));
+            check(&format!("\"{body}é日😀\" tail"));
+            for at in 0..len {
+                for esc in ["\\\"", "\\\\", "\\n", "\\u00e9", "\\"] {
+                    let mut body = body.clone();
+                    body.replace_range(at..at + 1, esc);
+                    check(&format!("\"{body}\":1"));
+                    check(&format!("\"{body}"));
+                    check(&format!("\"{body}\\\\\"}}"));
+                }
+            }
+        }
+        let mut rng = fastrand::Rng::with_seed(11);
+        let alphabet = ["a", "b", " ", "\"", "\\", "\\\"", "\\\\", "é", "😀", "{", ":"];
+        for _ in 0..20_000 {
+            let len = rng.usize(0..70);
+            let body: String = (0..len).map(|_| alphabet[rng.usize(..alphabet.len())]).collect();
+            check(&format!("\"{body}"));
+        }
     }
 
     #[test]
