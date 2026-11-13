@@ -34,18 +34,22 @@ pub(crate) enum StrMatcher {
     Set(FxHashSet<Box<str>>),
     /// Case-sensitive substring.
     Contains(memmem::Finder<'static>),
-    /// Any of several substrings, ASCII case-insensitive, in one pass.
-    Ac { ac: AhoCorasick, pats: Vec<Box<str>> },
+    /// Any of several substrings, ASCII case-insensitive, in one pass. A
+    /// single needle skips the automaton for a memchr-driven scan.
+    Ac { ac: Option<AhoCorasick>, single: Option<CiFinder>, pats: Vec<Box<str>> },
     Regex(regex::Regex),
 }
 
 impl StrMatcher {
     pub(crate) fn ac(pats: Vec<Box<str>>) -> StrMatcher {
+        if let [one] = pats.as_slice() {
+            return StrMatcher::Ac { ac: None, single: Some(CiFinder::new(one)), pats };
+        }
         let ac = AhoCorasick::builder()
             .ascii_case_insensitive(true)
             .build(pats.iter().map(|p| p.as_bytes()))
             .expect("literal patterns always build");
-        StrMatcher::Ac { ac, pats }
+        StrMatcher::Ac { ac: Some(ac), single: None, pats }
     }
 
     #[inline]
@@ -56,7 +60,17 @@ impl StrMatcher {
             StrMatcher::EqCi(v) => eq_ci(s, v),
             StrMatcher::Set(set) => set.contains(s),
             StrMatcher::Contains(f) => f.find(s.as_bytes()).is_some(),
-            StrMatcher::Ac { ac, .. } => ac.is_match(s),
+            StrMatcher::Ac { ac, single, .. } => {
+                // Most events have no text at all; skip the searcher setup.
+                if s.is_empty() {
+                    return false;
+                }
+                match (single, ac) {
+                    (Some(f), _) => f.is_match(s.as_bytes()),
+                    (None, Some(ac)) => ac.is_match(s),
+                    (None, None) => false,
+                }
+            }
             StrMatcher::Regex(re) => re.is_match(s),
         }
     }
@@ -70,6 +84,50 @@ impl StrMatcher {
             StrMatcher::Ac { .. } => 16,
             StrMatcher::Regex(_) => 60,
         }
+    }
+}
+
+/// ASCII case-insensitive search for one needle: memchr finds candidates for
+/// the first byte (in either case), then the remainder is compared in place.
+pub(crate) struct CiFinder {
+    needle: Box<[u8]>,
+    first: (u8, u8),
+}
+
+impl CiFinder {
+    pub(crate) fn new(needle: &str) -> CiFinder {
+        let needle: Box<[u8]> = needle.as_bytes().into();
+        let b = needle.first().copied().unwrap_or(0);
+        CiFinder { first: (b.to_ascii_lowercase(), b.to_ascii_uppercase()), needle }
+    }
+
+    #[inline]
+    pub(crate) fn is_match(&self, hay: &[u8]) -> bool {
+        let n = self.needle.len();
+        if n == 0 {
+            return true;
+        }
+        if hay.len() < n {
+            return false;
+        }
+        // Only positions where the whole needle still fits can start a match.
+        let last_start = hay.len() - n;
+        let mut from = 0;
+        while from <= last_start {
+            let window = &hay[from..=last_start];
+            let hit = if self.first.0 == self.first.1 {
+                memchr::memchr(self.first.0, window)
+            } else {
+                memchr::memchr2(self.first.0, self.first.1, window)
+            };
+            let Some(i) = hit else { return false };
+            let at = from + i;
+            if hay[at + 1..at + n].eq_ignore_ascii_case(&self.needle[1..]) {
+                return true;
+            }
+            from = at + 1;
+        }
+        false
     }
 }
 
@@ -658,6 +716,20 @@ mod tests {
         assert!(domain_matches("Sub.Example.com", "example.com"));
         assert!(!domain_matches("notexample.com", "example.com"));
         assert!(!domain_matches("example.com.evil.net", "example.com"));
+    }
+
+    #[test]
+    fn ci_finder_agrees_with_naive_search() {
+        let hays = ["", "a", "Hello World", "hello hello HELLO", "xxhellx hellO", "日本語 Bluesky ブルースカイ", "aaaaab", "-=-=42=-"];
+        let needles = ["", "a", "hello", "HELLO", "o w", "world", "b", "bluesky", "スカイ", "aab", "42", "=-", "zzz", "hello world!"];
+        for h in hays {
+            for n in needles {
+                let naive = h.to_ascii_lowercase().contains(&n.to_ascii_lowercase());
+                assert_eq!(CiFinder::new(n).is_match(h.as_bytes()), naive, "{n:?} in {h:?}");
+                let m = StrMatcher::ac(vec![n.into()]);
+                assert_eq!(m.is_match(h), naive && !h.is_empty(), "matcher {n:?} in {h:?}");
+            }
+        }
     }
 
     #[test]

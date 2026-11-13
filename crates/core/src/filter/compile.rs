@@ -121,7 +121,11 @@ fn expand_files(t: &Term) -> Result<Term, FilterError> {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
+    /// Substring, ignoring case.
     Contains,
+    /// Substring, case-sensitive: for identifier-like fields (AT-URIs, DIDs)
+    /// where case is significant and a plain memmem is fastest.
+    ContainsCs,
     Exact,
 }
 
@@ -211,6 +215,7 @@ fn str_matcher(t: &Term, v: &Value, mode: Mode) -> Result<StrMatcher, FilterErro
         (_, Value::Bare(s)) if s.contains('*') => StrMatcher::Regex(glob_regex(s, mode == Mode::Exact, true, t)?),
         (_, v) => match mode {
             Mode::Contains => contains_ci(v.text(), t)?,
+            Mode::ContainsCs => StrMatcher::Contains(memmem::Finder::new(v.text().as_bytes()).into_owned()),
             Mode::Exact => StrMatcher::EqCi(lower(v.text()).into()),
         },
     })
@@ -583,10 +588,10 @@ fn compile_term(t: &Term) -> Result<Node, FilterError> {
         }
         "name" | "displayname" | "title" => str_node(t, Field::Name, Mode::Contains),
         "alt" => str_node(t, Field::Alt, Mode::Contains),
-        "subject" | "to" | "target" => str_node(t, Field::Subject, Mode::Contains),
-        "parent" | "reply-to" | "replyto" => str_node(t, Field::Parent, Mode::Contains),
-        "root" | "thread" => str_node(t, Field::Root, Mode::Contains),
-        "quote" | "quotes" | "quoting" => str_node(t, Field::Quote, Mode::Contains),
+        "subject" | "to" | "target" => str_node(t, Field::Subject, Mode::ContainsCs),
+        "parent" | "reply-to" | "replyto" => str_node(t, Field::Parent, Mode::ContainsCs),
+        "root" | "thread" => str_node(t, Field::Root, Mode::ContainsCs),
+        "quote" | "quotes" | "quoting" => str_node(t, Field::Quote, Mode::ContainsCs),
         "raw" | "any" | "json" | "frame" => {
             // The raw frame is still JSON-escaped; search it case-sensitively
             // when asked for exactness, otherwise as a plain substring.
