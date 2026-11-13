@@ -640,6 +640,10 @@ impl Vortex {
             .left(t.pad + t.ch * 2.)
             .min_w(t.ch * 40.)
             .max_w(t.ch * 80.)
+            // Deferred: restate the text style (see render_palette).
+            .font_family(t.font.clone())
+            .text_size(t.font_size)
+            .line_height(t.row)
             .flex()
             .flex_col()
             .py(t.pad * 0.5)

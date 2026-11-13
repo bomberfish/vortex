@@ -244,40 +244,53 @@ impl Vortex {
             );
         }
         deferred(
-            div().absolute().top(px(TITLEBAR_HEIGHT) + t.row * 2.).left_0().right_0().flex().justify_center().child(
-                div()
-                    .w(t.ch * 76.)
-                    .flex()
-                    .flex_col()
-                    .bg(t.bg_alt)
-                    .border_1()
-                    .border_color(t.border)
-                    .rounded(t.radius)
-                    .shadow_lg()
-                    .occlude()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(t.pad)
-                            .px(t.pad * 2.)
-                            .py(t.pad)
-                            .border_b_1()
-                            .border_color(t.border)
-                            .child(div().flex_none().text_color(t.accent).child("›"))
-                            .child(self.palette_input.clone()),
-                    )
-                    .child(list.py(t.pad * 0.5))
-                    .child(
-                        div()
-                            .px(t.pad * 2.)
-                            .py(t.pad * 0.5)
-                            .border_t_1()
-                            .border_color(t.border)
-                            .text_color(t.fg_faint)
-                            .child("↵ run · ↑↓ choose · esc close · paste a handle or link to inspect"),
-                    ),
-            ),
+            // Deferred elements paint after the root's text style is popped;
+            // without restating it the input lays out with one line height
+            // and paints with another, so text and cursor drift apart.
+            div()
+                .font_family(t.font.clone())
+                .text_size(t.font_size)
+                .line_height(t.row)
+                .absolute()
+                .top(px(TITLEBAR_HEIGHT) + t.row * 2.)
+                .left_0()
+                .right_0()
+                .flex()
+                .justify_center()
+                .child(
+                    div()
+                        .w(t.ch * 76.)
+                        .flex()
+                        .flex_col()
+                        .bg(t.bg_alt)
+                        .border_1()
+                        .border_color(t.border)
+                        .rounded(t.radius)
+                        .shadow_lg()
+                        .occlude()
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(t.pad)
+                                .px(t.pad * 2.)
+                                .py(t.pad)
+                                .border_b_1()
+                                .border_color(t.border)
+                                .child(div().flex_none().text_color(t.accent).child("›"))
+                                .child(self.palette_input.clone()),
+                        )
+                        .child(list.py(t.pad * 0.5))
+                        .child(
+                            div()
+                                .px(t.pad * 2.)
+                                .py(t.pad * 0.5)
+                                .border_t_1()
+                                .border_color(t.border)
+                                .text_color(t.fg_faint)
+                                .child("↵ run · ↑↓ choose · esc close · paste a handle or link to inspect"),
+                        ),
+                ),
         )
         .with_priority(2)
     }
