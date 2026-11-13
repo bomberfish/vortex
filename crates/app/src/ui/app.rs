@@ -1542,7 +1542,7 @@ impl Vortex {
                 .items_center()
                 .h(t.row)
                 .gap(t.ch)
-                .child(div().w(t.ch * 15.).text_color(t.fg_dim).child(label))
+                .child(div().w(t.ch * 18.).whitespace_nowrap().text_color(t.fg_dim).child(label))
                 .child(self.chip("−", false, t).on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _, _, cx| {
@@ -1596,7 +1596,7 @@ impl Vortex {
                     .items_center()
                     .h(t.row)
                     .gap(t.ch)
-                    .child(div().w(t.ch * 15.).flex_none().text_color(t.fg_dim).child("font"))
+                    .child(div().w(t.ch * 18.).whitespace_nowrap().flex_none().text_color(t.fg_dim).child("font"))
                     .child(
                         div()
                             .flex()
@@ -1629,7 +1629,14 @@ impl Vortex {
                         .items_center()
                         .h(t.row)
                         .gap(t.ch)
-                        .child(div().w(t.ch * 15.).flex_none().text_color(t.fg_dim).child("window corners"))
+                        .child(
+                            div()
+                                .w(t.ch * 18.)
+                                .whitespace_nowrap()
+                                .flex_none()
+                                .text_color(t.fg_dim)
+                                .child("window corners"),
+                        )
                         .children([("round", false), ("square", true)].map(|(label, sq)| {
                             self.chip(label, ui.square_corners == sq, t).on_mouse_down(
                                 MouseButton::Left,
@@ -1647,13 +1654,43 @@ impl Vortex {
                     .items_center()
                     .h(t.row)
                     .gap(t.ch)
-                    .child(div().w(t.ch * 15.).flex_none().text_color(t.fg_dim).child("fps meter"))
+                    .child(div().w(t.ch * 18.).whitespace_nowrap().flex_none().text_color(t.fg_dim).child("fps meter"))
                     .children([("on", true), ("off", false)].map(|(label, on)| {
                         self.chip(label, ui.fps_meter == on, t).on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |this, _, _, cx| {
                                 this.cfg.config.ui.fps_meter = on;
                                 this.fps.reset();
+                                this.config_changed(cx);
+                            }),
+                        )
+                    })),
+            )
+            .child(
+                div()
+                    .id("welcome-on-launch")
+                    .flex()
+                    .items_center()
+                    .h(t.row)
+                    .gap(t.ch)
+                    .tooltip(tip(
+                        "welcome on launch",
+                        None,
+                        Some("show the welcome screen when vortex starts; off opens straight to the event list"),
+                    ))
+                    .child(
+                        div()
+                            .w(t.ch * 18.)
+                            .whitespace_nowrap()
+                            .flex_none()
+                            .text_color(t.fg_dim)
+                            .child("welcome on launch"),
+                    )
+                    .children([("on", true), ("off", false)].map(|(label, on)| {
+                        self.chip(label, ui.welcome == on, t).on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, _, cx| {
+                                this.cfg.config.ui.welcome = on;
                                 this.config_changed(cx);
                             }),
                         )
