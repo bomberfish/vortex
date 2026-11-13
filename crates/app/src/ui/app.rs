@@ -5,6 +5,9 @@
 //! short timeout and falls back to the previous frame's rows if a writer
 //! (ingest batch, re-filter) is holding it.
 
+mod inspect;
+mod lookup;
+
 use super::complete::{complete, Completion};
 use super::fps::FpsMeter;
 use super::input::{InputEvent, TextInput};
@@ -57,6 +60,10 @@ actions!(
         CopyUri,
         OpenInBrowser,
         OpenInPdsls,
+        InspectSelected,
+        InspectBack,
+        InspectForward,
+        InspectUp,
         RevealSelected,
         Quit,
     ]
@@ -105,6 +112,10 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("enter", OpenInBrowser, list),
         KeyBinding::new("r", RevealSelected, list),
         KeyBinding::new("p", OpenInPdsls, list),
+        KeyBinding::new("i", InspectSelected, list),
+        KeyBinding::new("cmd-[", InspectBack, root),
+        KeyBinding::new("cmd-]", InspectForward, root),
+        KeyBinding::new("cmd-up", InspectUp, root),
     ]);
 }
 
@@ -202,6 +213,12 @@ pub struct Vortex {
     /// Focus the filter input on the next render (debug hooks have no window).
     focus_filter_next_frame: bool,
     fps: FpsMeter,
+    client: Arc<crate::atp::Client>,
+    lookups: std::collections::HashMap<String, lookup::Fetch>,
+    /// Bumped per selection; a context fetch runs only if still current.
+    context_gen: u64,
+    inspector: Option<inspect::Inspector>,
+    show_welcome: bool,
 }
 
 impl Vortex {
@@ -300,6 +317,11 @@ impl Vortex {
             applied_square: None,
             focus_filter_next_frame: false,
             fps: FpsMeter::default(),
+            client: Arc::new(crate::atp::Client::new()),
+            lookups: Default::default(),
+            context_gen: 0,
+            inspector: None,
+            show_welcome: false,
         };
         this.apply_config(cx);
         if let Some(e) = this.cfg.error.clone() {
@@ -369,6 +391,14 @@ impl Vortex {
             }
             Ok("settings") => self.show_settings = true,
             Ok("badfilter") => self.set_query("type:post lnag:en (has:media", cx),
+            // `inspect:<target>[#history|#backlinks]`
+            Ok(v) if v.starts_with("inspect:") => {
+                let (target, tab) = v["inspect:".len()..].split_once('#').unwrap_or((&v["inspect:".len()..], ""));
+                if let Some(target) = crate::atp::parse_target(target) {
+                    self.inspect(target, cx);
+                    self.debug_inspect_tab(tab, cx);
+                }
+            }
             // Completion popup for a field name, then (after accepting) for values.
             Ok(mode @ ("complete" | "complete-accept")) => {
                 self.filter_input.update(cx, |i, cx| i.set_text("has:media ty", cx));
@@ -611,6 +641,8 @@ impl Vortex {
         });
         if self.detail.is_none() {
             self.selected = None;
+        } else {
+            self.schedule_context(cx);
         }
         cx.notify();
     }
@@ -1235,6 +1267,8 @@ impl Vortex {
                 ("c u o", "copy json / copy uri / open"),
                 ("r", "scroll to selected row"),
                 ("p", "open in pdsls.dev"),
+                ("i", "inspect record / repo"),
+                ("⌘[ ⌘] ⌘↑", "inspector back / forward / up"),
                 ("⌘K", "clear"),
                 ("⌘B ⌘I", "sidebar / detail"),
                 ("⌘T ⌘= ⌘-", "theme / font size"),
@@ -1297,10 +1331,15 @@ impl Vortex {
             head = head.child(div().text_color(t.fg_dim).truncate().child(m));
         }
 
+        head = head.child(self.render_context(e, t, cx));
         let did = e.did.to_string();
         let collection = e.collection_str();
         let mut actions = div().flex().flex_wrap().gap(t.pad).pt(t.pad);
         actions = actions
+            .child(self.chip("inspect", false, t).id("d-inspect").tooltip(tip("inspect", Some("i"), Some("browse this record and its repo, PLC history and backlinks"))).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| this.inspect_selected(&InspectSelected, window, cx)),
+            ))
             .child(self.chip("row", false, t).id("d-row").tooltip(tip("row", Some("r"), Some("scroll the list to this event"))).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.reveal_selected(&RevealSelected, window, cx)),
@@ -1618,6 +1657,10 @@ impl Vortex {
     }
 
     fn deselect(&mut self, _: &Deselect, _: &mut Window, cx: &mut Context<Self>) {
+        if self.inspector.is_some() && !self.show_settings && !self.show_help {
+            self.close_inspector(cx);
+            return;
+        }
         if self.show_settings || self.show_help {
             self.show_settings = false;
             self.show_help = false;
@@ -1707,6 +1750,28 @@ impl Vortex {
         if let Some(d) = &self.detail {
             cx.open_url(&pdsls_url(&d.event));
         }
+    }
+
+    fn inspect_selected(&mut self, _: &InspectSelected, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(d) = &self.detail else { return };
+        let target = d
+            .event
+            .at_uri()
+            .and_then(|u| crate::atp::parse_target(&u))
+            .unwrap_or_else(|| crate::atp::AtTarget::repo(d.event.did.to_string()));
+        self.inspect(target, cx);
+    }
+
+    fn on_inspect_back(&mut self, _: &InspectBack, _: &mut Window, cx: &mut Context<Self>) {
+        self.inspect_back(cx);
+    }
+
+    fn on_inspect_forward(&mut self, _: &InspectForward, _: &mut Window, cx: &mut Context<Self>) {
+        self.inspect_forward(cx);
+    }
+
+    fn on_inspect_up(&mut self, _: &InspectUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.inspect_up(cx);
     }
 
     /// Scroll the event list to the selected row and stop tailing.
@@ -1872,8 +1937,13 @@ impl Render for Vortex {
         if ui.sidebar {
             main = main.child(self.render_sidebar(&t, cx)).child(self.resize_handle(Pane::Sidebar, &t));
         }
-        main = main.child(self.render_list(&t, cx));
-        if ui.detail {
+        self.prepare_inspector();
+        if self.inspector.is_some() {
+            main = main.child(self.render_inspector(&t, cx));
+        } else {
+            main = main.child(self.render_list(&t, cx));
+        }
+        if ui.detail && self.inspector.is_none() {
             main = main.child(self.resize_handle(Pane::Detail, &t)).child(self.render_detail(&t, cx));
         }
 
@@ -1911,6 +1981,10 @@ impl Render for Vortex {
             .on_action(cx.listener(Self::open_in_browser))
             .on_action(cx.listener(Self::reveal_selected))
             .on_action(cx.listener(Self::open_in_pdsls))
+            .on_action(cx.listener(Self::inspect_selected))
+            .on_action(cx.listener(Self::on_inspect_back))
+            .on_action(cx.listener(Self::on_inspect_forward))
+            .on_action(cx.listener(Self::on_inspect_up))
             .on_action(cx.listener(Self::quit))
             .on_drag_move(cx.listener(|this, ev: &DragMoveEvent<ResizeDrag>, window, cx| {
                 let x = ev.event.position.x;

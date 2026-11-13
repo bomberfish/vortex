@@ -1,5 +1,6 @@
 //! vortex — a live viewer for AT Protocol event streams.
 
+mod atp;
 mod config;
 mod corners;
 mod theme;
