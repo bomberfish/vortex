@@ -59,7 +59,9 @@ Operators: `:` match · `=` exact · `~` regex · `!=` `!~` negated · `>` `>=`
 `<` `<=` numeric · `a,b` any-of · `/re/flags` regex literal · `*` glob.
 
 Clicking a kind or collection in the sidebar toggles it in the query
-(alt-click excludes). `+` saves the current query.
+(alt-click excludes). Common collections are pinned to the top with live
+counts; right-click any collection to pin or unpin it (`filter.pinned` in the
+config). `+` saves the current query.
 
 **Changing the filter re-filters everything already buffered**, not just new
 events. With `srv` on, the part of the query the server can evaluate (kinds,
@@ -77,7 +79,7 @@ no bandwidth; turn it off to keep the full stream buffered for later queries.
 | `⌘K` | clear buffer |
 | `⌘B` `⌘I` | sidebar / detail pane |
 | `⌘T` `⌘=` `⌘-` | next theme / font size |
-| `⌘,` `?` | settings / filter help |
+| `⌘,` `?` | settings / filter help (toggle) |
 | `⌘↵` | connect / disconnect |
 
 ## Configuration
@@ -109,6 +111,9 @@ kind = "jetstream"         # jetstream | jetstream-v1 | firehose
 hosts = []                 # empty = public defaults; "ws://localhost:6008" works
 compress = true
 pushdown = true
+
+[filter]
+pinned = ["app.bsky.feed.post", "app.bsky.feed.like"]   # sidebar order
 
 [buffer]
 events = 300000            # kept for instant re-filtering

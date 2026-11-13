@@ -133,12 +133,40 @@ pub struct SavedFilter {
     pub query: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FilterSettings {
     /// The query restored on launch.
     pub query: String,
     pub saved: Vec<SavedFilter>,
+    /// Collections always listed at the top of the sidebar, in this order.
+    pub pinned: Vec<String>,
+}
+
+/// The record types most people filter on.
+pub const DEFAULT_PINNED: &[&str] = &[
+    "app.bsky.feed.post",
+    "app.bsky.feed.like",
+    "app.bsky.feed.repost",
+    "app.bsky.graph.follow",
+    "app.bsky.graph.block",
+    "app.bsky.actor.profile",
+    "app.bsky.graph.list",
+    "app.bsky.graph.listitem",
+    "app.bsky.graph.starterpack",
+    "app.bsky.feed.generator",
+    "app.bsky.feed.threadgate",
+    "app.bsky.feed.postgate",
+];
+
+impl Default for FilterSettings {
+    fn default() -> Self {
+        FilterSettings {
+            query: String::new(),
+            saved: Vec::new(),
+            pinned: DEFAULT_PINNED.iter().map(|s| (*s).to_owned()).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -270,6 +298,7 @@ mod tests {
         assert_eq!(Config::parse(&text).unwrap(), c);
         assert_eq!(c.ui.font, BUNDLED_FONT);
         assert_eq!(c.ui.theme, "kanagawa");
+        assert_eq!(c.filter.pinned.len(), DEFAULT_PINNED.len());
     }
 
     #[test]

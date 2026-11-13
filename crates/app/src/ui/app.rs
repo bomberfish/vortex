@@ -174,6 +174,8 @@ pub struct Vortex {
     rates: Rates,
     snap: Snapshot,
     facets: Vec<FacetRow>,
+    /// Counts for `filter.pinned`, in config order.
+    pinned: Vec<FacetRow>,
     kinds: [FacetCount; 4],
     status: ConnStatus,
     seen_store: u64,
@@ -254,6 +256,7 @@ impl Vortex {
             rates: Rates::default(),
             snap: Snapshot::default(),
             facets: Vec::new(),
+            pinned: Vec::new(),
             kinds: Default::default(),
             status: ConnStatus::default(),
             seen_store: 0,
@@ -342,10 +345,18 @@ impl Vortex {
     fn refresh_facets(&mut self) {
         let Some(view) = self.engine.store.try_view(VIEW_TIMEOUT) else { return };
         let facets = view.facets();
+        let pinned = &self.cfg.config.filter.pinned;
+        self.pinned = pinned
+            .iter()
+            .map(|name| {
+                let n = Nsid::intern(name);
+                FacetRow { nsid: n.as_str(), count: facets.collection(n.index()) }
+            })
+            .collect();
         let mut rows: Vec<FacetRow> = Nsid::all()
             .into_iter()
             .map(|n| FacetRow { nsid: n.as_str(), count: facets.collection(n.index()) })
-            .filter(|r| r.count.seen > 0 || r.count.matched > 0)
+            .filter(|r| (r.count.seen > 0 || r.count.matched > 0) && !pinned.iter().any(|p| p == r.nsid))
             .collect();
         rows.sort_by(|a, b| b.count.seen.cmp(&a.count.seen).then(a.nsid.cmp(b.nsid)));
         rows.truncate(80);
@@ -467,7 +478,23 @@ impl Vortex {
 
     // ---- selection -------------------------------------------------------
 
+    fn toggle_pin(&mut self, nsid: &str, cx: &mut Context<Self>) {
+        let pinned = &mut self.cfg.config.filter.pinned;
+        match pinned.iter().position(|p| p == nsid) {
+            Some(i) => {
+                pinned.remove(i);
+            }
+            None => pinned.push(nsid.to_owned()),
+        }
+        self.cfg_dirty = true;
+        self.refresh_facets();
+        cx.notify();
+    }
+
     fn select(&mut self, id: Option<u64>, cx: &mut Context<Self>) {
+        if id.is_some() {
+            self.show_help = false;
+        }
         self.selected = id;
         self.detail = id.and_then(|id| {
             let view = self.engine.store.view();
@@ -779,18 +806,26 @@ impl Vortex {
             ));
         }
 
-        let mut collections = div().id("facet-collections").flex().flex_col().flex_1().min_h_0().overflow_y_scroll();
-        for row in &self.facets {
+        // Click toggles the collection in the query; right-click pins/unpins.
+        let collection_row = |row: &FacetRow, t: &Theme, cx: &mut Context<Self>| {
             let nsid = row.nsid;
             let active = query_has(&query, "collection", nsid);
-            collections = collections.child(
-                facet_row(short_collection(nsid).into(), t.hue(nsid), active, row.count, t).on_mouse_down(
+            facet_row(short_collection(nsid).into(), t.hue(nsid), active, row.count, t)
+                .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
                         this.toggle_term("collection", nsid, ev.modifiers.alt || ev.modifiers.shift, cx)
                     }),
-                ),
-            );
+                )
+                .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| this.toggle_pin(nsid, cx)))
+        };
+        let mut pinned = div().flex().flex_col().flex_none();
+        for row in &self.pinned {
+            pinned = pinned.child(collection_row(row, t, cx));
+        }
+        let mut collections = div().id("facet-collections").flex().flex_col().flex_1().min_h_0().overflow_y_scroll();
+        for row in &self.facets {
+            collections = collections.child(collection_row(row, t, cx));
         }
 
         let mut saved = div().id("saved-filters").flex().flex_col().flex_none().max_h(t.row * 9.).overflow_y_scroll();
@@ -838,6 +873,7 @@ impl Vortex {
             .bg(t.bg_alt)
             .child(self.section("kind", t))
             .child(kinds)
+            .when(!self.pinned.is_empty(), |d| d.child(self.section("pinned", t)).child(pinned))
             .child(self.section("collection", t))
             .child(collections)
             .child(
@@ -981,7 +1017,18 @@ impl Vortex {
             .w(px(self.cfg.config.ui.detail_width.clamp(160., 1600.)))
             .bg(t.bg_alt);
 
-        if self.show_help || self.detail.is_none() {
+        if !self.show_help && self.detail.is_none() {
+            return pane.child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .items_center()
+                    .justify_center()
+                    .text_color(t.fg_faint)
+                    .child("no selection  ·  ? syntax"),
+            );
+        }
+        if self.show_help {
             let mut help = div().id("help").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().p(t.pad).gap(px(1.));
             for (syntax, meaning) in FIELD_HELP {
                 help = help.child(
