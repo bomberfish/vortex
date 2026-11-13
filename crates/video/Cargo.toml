@@ -1,0 +1,37 @@
+# Vendored from https://github.com/cijiugechu/gpui-video-player (MIT, see
+# LICENSE) at 0.1.3, built against the gpui-pre version vortex uses (=0.3.12)
+# instead of the upstream pin (=0.3.9). Only the gpui-pre backend is wired up.
+[package]
+name = "gpui-video-player"
+version = "0.1.3"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[features]
+default = ["gpui-pre"]
+# Upstream's GPUI 0.2 backend is not built here; the feature exists so the
+# vendored source's cfg branches stay valid.
+gpui = []
+gpui-pre = ["dep:gpui_pre", "dep:core-video-pre", "dep:objc2-core-foundation", "dep:objc2-core-video"]
+
+[dependencies]
+gpui_pre = { package = "gpui-pre", version = "=0.3.12", default-features = false, optional = true }
+gstreamer = "0.25"
+gstreamer-app = "0.25"
+gstreamer-base = "0.25"
+gstreamer-video = "0.25"
+glib = "0.22"
+log = "0.4"
+thiserror = "2"
+url = "2"
+parking_lot = "0.12"
+image = { version = "0.25", default-features = false, features = ["png", "gif", "webp"] }
+smallvec = "1"
+yuv = "0.8"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-video-pre = { package = "core-video", version = "0.6", optional = true }
+core-foundation = "0.10"
+objc2-core-foundation = { version = "0.3.2", optional = true }
+objc2-core-video = { version = "0.3.2", optional = true }
