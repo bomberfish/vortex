@@ -5,7 +5,7 @@ mod theme;
 mod ui;
 
 use config::{config_path, ConfigFile};
-use gpui::{px, size, App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
+use gpui::{point, px, size, App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
 use std::borrow::Cow;
 use theme::{resolve_palette, Theme};
 use ui::app::Vortex;
@@ -33,7 +33,12 @@ fn main() {
         let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(TitlebarOptions { title: Some("vortex".into()), ..Default::default() }),
+            // The top bar doubles as the title bar: one less row of chrome.
+            titlebar: Some(TitlebarOptions {
+                title: Some("vortex".into()),
+                appears_transparent: true,
+                traffic_light_position: Some(point(px(9.), px(7.))),
+            }),
             window_min_size: Some(size(px(640.), px(360.))),
             ..Default::default()
         };

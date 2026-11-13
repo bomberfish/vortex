@@ -15,7 +15,7 @@ use crate::theme::{resolve_palette, theme_names, Theme};
 use gpui::{
     actions, canvas, div, fill, point, prelude::*, px, size, uniform_list, App, Bounds, ClipboardItem, Context, Div,
     DragMoveEvent, Entity, FocusHandle, Focusable, Hsla, KeyBinding, MouseButton, MouseDownEvent, Pixels,
-    ScrollEvent, ScrollStrategy, SharedString, StyledText, UniformListScrollHandle, Window,
+    ScrollEvent, ScrollStrategy, SharedString, StyledText, UniformListScrollHandle, Window, WindowControlArea,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -106,6 +106,9 @@ pub fn bind_keys(cx: &mut App) {
 const VIEW_TIMEOUT: Duration = Duration::from_millis(2);
 const TICK: Duration = Duration::from_millis(33);
 const FILTER_DEBOUNCE: Duration = Duration::from_millis(140);
+/// Height of the combined title/top bar, tall enough for the traffic lights.
+const TITLEBAR_HEIGHT: f32 = 26.;
+const TRAFFIC_LIGHTS_WIDTH: f32 = 70.;
 const REWINDS: [(&str, u64); 5] = [("live", 0), ("1m", 60), ("5m", 300), ("30m", 1800), ("2h", 7200)];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -553,7 +556,7 @@ impl Vortex {
 
     // ---- regions ---------------------------------------------------------
 
-    fn render_top_bar(&self, t: &Theme, cx: &mut Context<Self>) -> Div {
+    fn render_top_bar(&self, t: &Theme, window: &Window, cx: &mut Context<Self>) -> Div {
         let src = &self.cfg.config.source;
         let kind = src.kind();
         let (dot, state_text): (Hsla, SharedString) = match self.status.state {
@@ -577,10 +580,13 @@ impl Vortex {
             .items_center()
             .gap(t.pad)
             .px(t.pad)
-            .py(t.pad * 0.5)
+            .min_h(px(TITLEBAR_HEIGHT))
             .bg(t.bg_alt)
             .border_b_1()
             .border_color(t.border)
+            // Doubles as the window title bar.
+            .window_control_area(WindowControlArea::Drag)
+            .when(cfg!(target_os = "macos") && !window.is_fullscreen(), |d| d.pl(px(TRAFFIC_LIGHTS_WIDTH)))
             .child(
                 div()
                     .flex()
@@ -885,7 +891,7 @@ impl Vortex {
                             window.focus(&this.focus, cx);
                         }),
                     )
-                    .child(div().flex_none().w(t.ch * 12.).text_color(t.fg_faint).child(r.time.clone()))
+                    .child(div().flex_none().w(t.ch * 12.5).text_color(t.fg_faint).child(r.time.clone()))
                     .child(div().flex_none().w(t.ch).text_color(r.tone.color(&t)).child(r.glyph))
                     .child(
                         div()
@@ -919,7 +925,7 @@ impl Vortex {
             .gap(t.ch)
             .bg(t.bg_alt)
             .text_color(t.fg_faint)
-            .child(div().flex_none().w(t.ch * 12.).child("utc"))
+            .child(div().flex_none().w(t.ch * 12.5).child("utc"))
             .child(div().flex_none().w(t.ch))
             .child(div().flex_none().w(t.ch * 18.).child("type"))
             .child(div().flex_none().w(t.ch * 16.).child("did"))
@@ -1158,7 +1164,7 @@ impl Vortex {
         let path = self.cfg.path.clone();
         div()
             .absolute()
-            .top(t.row + t.pad * 2.)
+            .top(px(TITLEBAR_HEIGHT + 2.))
             .right(t.pad)
             .w(t.ch * 46.)
             .flex()
@@ -1587,7 +1593,7 @@ impl Render for Vortex {
                 this.cfg_dirty = true;
                 cx.notify();
             }))
-            .child(self.render_top_bar(&t, cx))
+            .child(self.render_top_bar(&t, window, cx))
             .child(self.render_filter_bar(&t, window, cx))
             .child(main)
             .child(self.render_status_bar(&t));
