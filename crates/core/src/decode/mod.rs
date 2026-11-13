@@ -88,6 +88,10 @@ impl FrameDecoder {
         }
     }
 
+    pub fn dictionaries(&self) -> &Arc<Dictionaries> {
+        &self.dicts
+    }
+
     /// Decode one websocket message, appending results to `out`.
     ///
     /// Returns the witnessed timestamp of the last event produced (0 if

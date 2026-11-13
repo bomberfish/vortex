@@ -6871,7 +6871,9 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
+ "webpki-roots 1.0.12",
  "zstd",
 ]
 

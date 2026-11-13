@@ -9,8 +9,13 @@
 
 pub mod decode;
 pub mod did;
+pub mod engine;
 pub mod event;
 pub mod json;
+pub mod net;
+pub mod pipeline;
+pub mod stats;
+pub mod store;
 pub mod nsid;
 pub mod time;
 pub mod filter;
