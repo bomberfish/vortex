@@ -1,5 +1,6 @@
 //! Turning events into display rows, and JSON into highlighted lines.
 
+use super::icons::Icon;
 use crate::theme::Theme;
 use gpui::{HighlightStyle, Hsla, SharedString};
 use std::ops::Range;
@@ -45,7 +46,7 @@ pub struct RowData {
     /// The preview is a reference (subject, handle…), not authored text.
     pub text_is_ref: bool,
     /// Compact markers: reply, quote, media, link.
-    pub marks: SharedString,
+    pub marks: Vec<Icon>,
 }
 
 pub fn clock(us: i64) -> String {
@@ -105,10 +106,14 @@ pub fn row_data(e: &Event) -> RowData {
         (e.field(Field::Aux).to_owned(), true)
     };
 
-    let mut marks = String::new();
-    for (flag, mark) in
-        [(Flags::REPLY, '↩'), (Flags::QUOTE, '❝'), (Flags::IMAGES, '▣'), (Flags::VIDEO, '▶'), (Flags::LINK, '∞')]
-    {
+    let mut marks = Vec::new();
+    for (flag, mark) in [
+        (Flags::REPLY, Icon::Reply),
+        (Flags::QUOTE, Icon::Quote),
+        (Flags::IMAGES, Icon::Image),
+        (Flags::VIDEO, Icon::Video),
+        (Flags::LINK, Icon::Link),
+    ] {
         if e.flags.contains(flag) {
             marks.push(mark);
         }
@@ -125,7 +130,7 @@ pub fn row_data(e: &Event) -> RowData {
         did: short_did(&did).to_owned().into(),
         text: text.into(),
         text_is_ref,
-        marks: marks.into(),
+        marks,
     }
 }
 
@@ -334,7 +339,7 @@ mod tests {
         assert_eq!(r.did.as_ref(), "7e6kocyzb77xkncp");
         assert_eq!(r.text.as_ref(), "line one line two");
         assert_eq!(r.time.as_ref(), "06:47:43.959");
-        assert_eq!(r.marks.as_ref(), "↩▣");
+        assert_eq!(r.marks, [Icon::Reply, Icon::Image]);
         assert!(!r.text_is_ref);
 
         let like = ev(

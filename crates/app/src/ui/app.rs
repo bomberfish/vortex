@@ -12,12 +12,13 @@ mod welcome;
 
 use super::complete::{complete, Completion};
 use super::fps::FpsMeter;
+use super::icons::{icon, Icon};
 use super::input::{InputEvent, TextInput};
 use super::rows::{
     clock, fmt_bytes, fmt_count, fmt_duration_us, fmt_rate, json_lines, pdsls_url, row_data, short_collection, web_url,
     JsonLine, RowData,
 };
-use super::tip::tip;
+use super::tip::{tip, tip_legend};
 use crate::config::{ConfigFile, SavedFilter, BUNDLED_FONT};
 use crate::theme::{resolve_palette, theme_names, Theme};
 use gpui::{
@@ -234,6 +235,8 @@ pub struct Vortex {
     focus_filter_next_frame: bool,
     /// Open the palette with this text on the next render (debug hooks).
     palette_next_frame: Option<String>,
+    /// Debug: show every icon at several sizes.
+    icon_sheet: bool,
     fps: FpsMeter,
     client: Arc<crate::atp::Client>,
     lookups: std::collections::HashMap<String, lookup::Fetch>,
@@ -362,6 +365,7 @@ impl Vortex {
             applied_square: None,
             focus_filter_next_frame: false,
             palette_next_frame: None,
+            icon_sheet: false,
             fps: FpsMeter::default(),
             client: Arc::new(crate::atp::Client::new()),
             lookups: Default::default(),
@@ -444,6 +448,7 @@ impl Vortex {
             }
             Ok("settings") => self.show_settings = true,
             Ok("badfilter") => self.set_query("type:post lnag:en (has:media", cx),
+            Ok("icons") => self.icon_sheet = true,
             Ok(v) if v.starts_with("palette:") => {
                 self.show_welcome = false;
                 self.palette_next_frame = Some(v["palette:".len()..].to_owned());
@@ -748,6 +753,16 @@ impl Vortex {
     // ---- small view helpers ------------------------------------------------
 
     fn chip(&self, label: impl Into<SharedString>, active: bool, t: &Theme) -> Div {
+        self.chip_base(active, t).child(label.into())
+    }
+
+    /// A chip with an icon and an optional label.
+    fn icon_chip(&self, i: Icon, label: Option<&'static str>, active: bool, t: &Theme) -> Div {
+        let color = if active { t.bg } else { t.fg_dim };
+        self.chip_base(active, t).gap(t.pad).child(icon(i, color, t.font_size)).children(label)
+    }
+
+    fn chip_base(&self, active: bool, t: &Theme) -> Div {
         let hover = t.bg_hover;
         div()
             .flex()
@@ -759,7 +774,6 @@ impl Vortex {
             .cursor_pointer()
             .when(active, |d| d.bg(t.accent).text_color(t.bg))
             .when(!active, |d| d.text_color(t.fg_dim).hover(move |s| s.bg(hover)))
-            .child(label.into())
     }
 
     fn stat(&self, value: impl Into<SharedString>, unit: &'static str, color: Hsla, t: &Theme) -> Div {
@@ -842,7 +856,7 @@ impl Vortex {
                         Some("⌘↵"),
                         Some(&conn_tip),
                     ))
-                    .child(div().text_color(dot).child("●"))
+                    .child(icon(Icon::Dot, dot, t.font_size))
                     .child(div().max_w(t.ch * 40.).truncate().text_color(t.fg_dim).child(state_text)),
             )
             .child(self.sep(t));
@@ -909,7 +923,15 @@ impl Vortex {
 
         bar.child(div().flex_1())
             .child(self.stat(fmt_rate(self.rates.events_per_s), "/s", t.fg, t).id("st-in").tooltip(tip("events/s received", None, None)))
-            .child(self.stat(fmt_rate(self.rates.matched_per_s), "✓/s", t.accent, t).id("st-match").tooltip(tip("events/s matching the filter", None, None)))
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .child(div().text_color(t.accent).child(fmt_rate(self.rates.matched_per_s)))
+                    .child(icon(Icon::Check, t.fg_faint, t.font_size * 0.85))
+                    .child(div().text_color(t.fg_faint).child("/s"))
+                    .id("st-match").tooltip(tip("events/s matching the filter", None, None)))
             .child(self.stat(fmt_bytes(self.rates.wire_bytes_per_s), "/s", t.fg_dim, t).id("st-wire").tooltip(tip("bandwidth", None, Some("bytes/s on the wire, after compression"))))
             .child(self.stat(lag, " lag", t.fg_dim, t).id("st-lag").tooltip(tip("lag", None, Some("now minus the newest event's server time"))))
             .child(self.stat(format!("{:.0}%", self.rates.pipeline_load * 100.0), " cpu", t.fg_dim, t).id("st-cpu").tooltip(tip("pipeline load", None, Some("share of one core spent decoding and filtering"))))
@@ -951,11 +973,11 @@ impl Vortex {
                 .flex_none(),
             )
             .child(self.sep(t))
-            .child(self.chip("?", self.show_help, t).id("help").tooltip(tip("filter syntax & keys", Some("?"), None)).on_mouse_down(
+            .child(self.icon_chip(Icon::Help, None, self.show_help, t).id("help").tooltip(tip("filter syntax & keys", Some("?"), None)).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.toggle_help(&ToggleHelp, window, cx)),
             ))
-            .child(self.chip("⚙", self.show_settings, t).id("settings").tooltip(tip("settings", Some("⌘,"), None)).on_mouse_down(
+            .child(self.icon_chip(Icon::Gear, None, self.show_settings, t).id("settings").tooltip(tip("settings", Some("⌘,"), None)).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.toggle_settings(&ToggleSettings, window, cx)),
             ))
@@ -990,7 +1012,7 @@ impl Vortex {
                 Some("buffered events matching the filter"),
             )))
             .child(
-                self.chip(if self.follow { "▼ tail" } else { "▽ tail" }, self.follow, t)
+                self.icon_chip(Icon::Tail, Some("tail"), self.follow, t)
                     .id("tail")
                     .tooltip(tip("tail", Some("space"), Some("keep the newest event in view")))
                     .on_mouse_down(
@@ -1224,7 +1246,16 @@ impl Vortex {
                             .child(r.what.clone()),
                     )
                     .child(div().flex_none().w(t.ch * 16.).truncate().text_color(t.fg_faint).child(r.did.clone()))
-                    .child(div().flex_none().w(t.ch * 4.).truncate().text_color(t.fg_dim).child(r.marks.clone()))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .gap(px(2.))
+                            .w(t.ch * 6.)
+                            .overflow_hidden()
+                            .children(r.marks.iter().map(|m| icon(*m, t.fg_dim, t.font_size * 0.9))),
+                    )
                     .child(
                         div()
                             .flex_1()
@@ -1255,10 +1286,15 @@ impl Vortex {
             )))
             .child(div().flex_none().w(t.ch * 18.).child("type"))
             .child(div().flex_none().w(t.ch * 16.).child("did"))
-            .child(div().id("h-marks").flex_none().w(t.ch * 4.).child("·").tooltip(tip(
+            .child(div().id("h-marks").flex_none().w(t.ch * 6.).child("·").tooltip(tip_legend(
                 "marks",
-                None,
-                Some("↩ reply   ❝ quote   ▣ images   ▶ video   ∞ link"),
+                &[
+                    (Icon::Reply, "reply"),
+                    (Icon::Quote, "quote"),
+                    (Icon::Image, "images"),
+                    (Icon::Video, "video"),
+                    (Icon::Link, "link"),
+                ],
             )))
             .child(div().flex_1().child("text"));
 
@@ -2296,6 +2332,29 @@ impl Render for Vortex {
         }
         if self.palette_open {
             root = root.child(self.render_palette(&t, cx));
+        }
+        if self.icon_sheet {
+            use super::icons::{icon, Icon};
+            let mut sheet =
+                div().absolute().top(px(60.)).left(px(20.)).p(px(12.)).bg(t.bg_alt).flex().flex_col().gap(px(8.));
+            for sz in [9.0, 12.0, 16.0, 24.0] {
+                let mut row = div().flex().gap(px(sz * 0.6)).items_center();
+                for i in Icon::ALL {
+                    row = row.child(icon(i, t.fg, px(sz)));
+                }
+                sheet = sheet.child(row);
+            }
+            let mut words = div().flex().gap(px(6.)).items_center().text_color(t.fg_dim);
+            for (i, w) in [
+                (Icon::Reply, "reply"),
+                (Icon::Image, "image"),
+                (Icon::Heart, "12"),
+                (Icon::Repost, "3"),
+                (Icon::Gear, "settings"),
+            ] {
+                words = words.child(icon(i, t.accent, t.font_size)).child(w);
+            }
+            root = root.child(sheet.child(words));
         }
         if let Some(start) = frame_start {
             self.fps.end(start);

@@ -254,7 +254,7 @@ impl Vortex {
         let hover = t.bg_hover;
 
         // Navigation bar: history, breadcrumbs, actions.
-        let nav_chip = |label: &'static str, enabled: bool, t: &Theme| {
+        let nav_chip = |i: Icon, enabled: bool, t: &Theme| {
             div()
                 .flex_none()
                 .px(t.pad)
@@ -262,9 +262,8 @@ impl Vortex {
                 .flex()
                 .items_center()
                 .rounded(t.radius)
-                .text_color(if enabled { t.fg_dim } else { t.fg_faint })
                 .when(enabled, |d| d.cursor_pointer().hover(move |s| s.bg(hover)))
-                .child(label)
+                .child(icon(i, if enabled { t.fg_dim } else { t.border }, t.font_size))
         };
         let mut crumbs = div()
             .flex()
@@ -324,19 +323,19 @@ impl Vortex {
             .border_b_1()
             .border_color(t.border)
             .child(
-                nav_chip("←", !i.back.is_empty(), t)
+                nav_chip(Icon::Left, !i.back.is_empty(), t)
                     .id("i-back")
                     .tooltip(tip("back", Some("⌘["), None))
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.inspect_back(cx))),
             )
             .child(
-                nav_chip("→", !i.forward.is_empty(), t)
+                nav_chip(Icon::Right, !i.forward.is_empty(), t)
                     .id("i-fwd")
                     .tooltip(tip("forward", Some("⌘]"), None))
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.inspect_forward(cx))),
             )
             .child(
-                nav_chip("↑", target.up().is_some(), t)
+                nav_chip(Icon::Up, target.up().is_some(), t)
                     .id("i-up")
                     .tooltip(tip("up one level", Some("⌘↑"), None))
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.inspect_up(cx))),
@@ -370,7 +369,7 @@ impl Vortex {
                 },
             ))
             .child(
-                self.chip("✕", false, t)
+                self.icon_chip(Icon::Close, None, false, t)
                     .id("i-close")
                     .tooltip(tip("back to the stream", Some("esc"), None))
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close_inspector(cx))),
@@ -674,14 +673,7 @@ impl Vortex {
             );
         }
         if let Some(p) = self.lookup_ok(&format!("postview:{uri}")) {
-            let n = |k: &str| fmt_count(p[k].as_u64().unwrap_or(0));
-            out = out.child(div().text_color(t.fg_dim).child(format!(
-                "♥ {}  ⟲ {}  ↩ {}  ❝ {}",
-                n("likeCount"),
-                n("repostCount"),
-                n("replyCount"),
-                n("quoteCount")
-            )));
+            out = out.child(super::lookup::post_counts(p, t));
         }
         // JSON, with references clickable.
         if let Some((_, lines)) = &i.record_lines {

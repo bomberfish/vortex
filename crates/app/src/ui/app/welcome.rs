@@ -77,7 +77,7 @@ impl Vortex {
 
         let connected = self.status.state != ConnState::Idle;
         let item = |id: &'static str,
-                    glyph: &'static str,
+                    glyph: Icon,
                     label: String,
                     keys: &'static str,
                     cmd: Cmd,
@@ -94,7 +94,7 @@ impl Vortex {
                 .rounded(t.radius)
                 .cursor_pointer()
                 .hover(move |s| s.bg(hover))
-                .child(div().flex_none().w(t.ch * 2.).text_color(t.fg_faint).child(glyph))
+                .child(div().flex_none().w(t.ch * 2.).flex().items_center().child(icon(glyph, t.fg_dim, t.font_size)))
                 .child(div().flex_1().text_color(t.fg).child(label))
                 .child(div().flex_none().text_color(t.fg_faint).child(keys))
                 .on_mouse_down(
@@ -148,17 +148,17 @@ impl Vortex {
                 .child(section("get started", t))
                 .child(item(
                     "w-stream",
-                    "●",
+                    Icon::Play,
                     if connected { "watch the stream".into() } else { "connect to Jetstream".into() },
                     if connected { "esc" } else { "⌘↵" },
                     if connected { Cmd::FocusFilter } else { Cmd::ToggleConnect },
                     t,
                     cx,
                 ))
-                .child(item("w-replay", "⟲", "replay the last 5 minutes".into(), "", Cmd::Replay(300), t, cx))
+                .child(item("w-replay", Icon::Replay, "replay the last 5 minutes".into(), "", Cmd::Replay(300), t, cx))
                 .child(item(
                     "w-firehose",
-                    "≋",
+                    Icon::Stream,
                     "watch the relay firehose".into(),
                     "",
                     Cmd::Source(SourceKind::Firehose),
@@ -179,7 +179,11 @@ impl Vortex {
                             let h = t.bg_hover;
                             move |s| s.bg(h)
                         })
-                        .child(div().flex_none().w(t.ch * 2.).text_color(t.fg_faint).child("⌕"))
+                        .child(div().flex_none().w(t.ch * 2.).flex().items_center().child(icon(
+                            Icon::Search,
+                            t.fg_dim,
+                            t.font_size,
+                        )))
                         .child(div().flex_1().text_color(t.fg).child("inspect an account or record…"))
                         .child(div().flex_none().text_color(t.fg_faint).child("⌘P"))
                         .on_mouse_down(
@@ -187,22 +191,30 @@ impl Vortex {
                             cx.listener(|this, _, window, cx| this.open_palette(window, cx)),
                         ),
                 )
-                .child(item("w-help", "?", "filter syntax & keys".into(), "?", Cmd::Help, t, cx))
+                .child(item("w-help", Icon::Help, "filter syntax & keys".into(), "?", Cmd::Help, t, cx))
                 .child(section("configure", t))
-                .child(item("w-settings", "⚙", "settings".into(), "⌘,", Cmd::Settings, t, cx))
+                .child(item("w-settings", Icon::Gear, "settings".into(), "⌘,", Cmd::Settings, t, cx))
                 .child(
-                    item("w-theme", "◐", format!("theme: {}", self.cfg.config.ui.theme), "⌘T", Cmd::NextTheme, t, cx)
-                        .tooltip(tip(
-                            "theme",
-                            Some("⌘T ⌘⇧T"),
-                            Some("click for the next theme, right-click for the previous one"),
-                        ))
-                        .on_mouse_down(
-                            MouseButton::Right,
-                            cx.listener(|this, _, window, cx| this.run_cmd(Cmd::PrevTheme, window, cx)),
-                        ),
+                    item(
+                        "w-theme",
+                        Icon::Theme,
+                        format!("theme: {}", self.cfg.config.ui.theme),
+                        "⌘T",
+                        Cmd::NextTheme,
+                        t,
+                        cx,
+                    )
+                    .tooltip(tip(
+                        "theme",
+                        Some("⌘T ⌘⇧T"),
+                        Some("click for the next theme, right-click for the previous one"),
+                    ))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(|this, _, window, cx| this.run_cmd(Cmd::PrevTheme, window, cx)),
+                    ),
                 )
-                .child(item("w-config", "✎", "open config.toml".into(), "", Cmd::OpenConfig, t, cx))
+                .child(item("w-config", Icon::File, "open config.toml".into(), "", Cmd::OpenConfig, t, cx))
                 .child(
                     div()
                         .flex()

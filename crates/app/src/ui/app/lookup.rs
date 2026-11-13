@@ -169,9 +169,9 @@ impl Vortex {
         if let Some(uri) = e.at_uri().filter(|_| e.collection_str() == "app.bsky.feed.post") {
             if let Some(f) = self.lookup(&format!("post:{uri}")) {
                 let text = match f {
-                    Fetch::Done(Ok(p)) => post_counts(p),
-                    Fetch::Done(Err(err)) => err.clone(),
-                    Fetch::Pending => "…".into(),
+                    Fetch::Done(Ok(p)) => post_counts(p, t),
+                    Fetch::Done(Err(err)) => div().child(err.clone()),
+                    Fetch::Pending => div().child("…"),
                 };
                 out = out.child(
                     div()
@@ -222,7 +222,7 @@ impl Vortex {
                                 .overflow_hidden()
                                 .child(p["record"]["text"].as_str().unwrap_or("").replace('\n', " ")),
                         )
-                        .child(div().text_color(t.fg_faint).truncate().child(post_counts(p)));
+                        .child(post_counts(p, t).text_color(t.fg_faint));
                 }
                 (Ref::Actor(_), Some(Fetch::Done(Ok(p)))) => {
                     body = body
@@ -332,7 +332,23 @@ fn profile_stats(p: &Value) -> String {
     s
 }
 
-fn post_counts(p: &Value) -> String {
-    let n = |k: &str| fmt_count(p[k].as_u64().unwrap_or(0));
-    format!("♥ {}  ⟲ {}  ↩ {}  ❝ {}", n("likeCount"), n("repostCount"), n("replyCount"), n("quoteCount"))
+/// Like, repost, reply and quote counts with their icons.
+pub(super) fn post_counts(p: &Value, t: &Theme) -> Div {
+    let mut row = div().flex().items_center().gap(t.ch).text_color(t.fg_dim);
+    for (i, k) in [
+        (Icon::Heart, "likeCount"),
+        (Icon::Repost, "repostCount"),
+        (Icon::Reply, "replyCount"),
+        (Icon::Quote, "quoteCount"),
+    ] {
+        row = row.child(
+            div()
+                .flex()
+                .items_center()
+                .gap(t.pad)
+                .child(icon(i, t.fg_faint, t.font_size))
+                .child(fmt_count(p[k].as_u64().unwrap_or(0))),
+        );
+    }
+    row
 }
