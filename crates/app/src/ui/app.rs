@@ -7,6 +7,7 @@
 
 mod inspect;
 mod lookup;
+mod media_view;
 mod palette;
 mod welcome;
 
@@ -84,17 +85,33 @@ actions!(
         InspectForward,
         InspectUp,
         RevealSelected,
+        ViewerPrev,
+        ViewerNext,
+        ViewerClose,
+        ViewerOpen,
+        ViewerPause,
+        ViewerMute,
         Quit,
     ]
 );
 
 const ROOT_CONTEXT: &str = "Vortex";
 const LIST_CONTEXT: &str = "EventList";
+const VIEWER_CONTEXT: &str = "MediaViewer";
 
 pub fn bind_keys(cx: &mut App) {
     let root = Some(ROOT_CONTEXT);
     let list = Some(LIST_CONTEXT);
+    let viewer = Some(VIEWER_CONTEXT);
     cx.bind_keys([
+        KeyBinding::new("left", ViewerPrev, viewer),
+        KeyBinding::new("h", ViewerPrev, viewer),
+        KeyBinding::new("right", ViewerNext, viewer),
+        KeyBinding::new("l", ViewerNext, viewer),
+        KeyBinding::new("escape", ViewerClose, viewer),
+        KeyBinding::new("o", ViewerOpen, viewer),
+        KeyBinding::new("space", ViewerPause, viewer),
+        KeyBinding::new("m", ViewerMute, viewer),
         // Anywhere in the window.
         KeyBinding::new("cmd-f", FocusFilter, root),
         KeyBinding::new("cmd-l", FocusFilter, root),
@@ -186,6 +203,13 @@ pub struct Vortex {
     cfg: ConfigFile,
     cfg_dirty: bool,
     focus: FocusHandle,
+    /// Images fetched for the detail pane, inspector and viewer.
+    images: media_view::Images,
+    /// The full-window media viewer, when open.
+    viewer: Option<media_view::Viewer>,
+    viewer_focus: FocusHandle,
+    /// Records (by URI) whose labeled media the user chose to show.
+    revealed: std::collections::HashSet<String>,
     filter_input: Entity<TextInput>,
     font_input: Entity<TextInput>,
 
@@ -238,6 +262,8 @@ pub struct Vortex {
     focus_filter_next_frame: bool,
     /// Open the palette with this text on the next render (debug hooks).
     palette_next_frame: Option<String>,
+    /// Debug builds: open the media viewer on the selection once its labels load.
+    debug_view: bool,
     /// Debug: show every icon at several sizes.
     icon_sheet: bool,
     /// Debug: show tooltips laid out as GPUI does (min-content), no hover.
@@ -331,6 +357,10 @@ impl Vortex {
             cfg,
             cfg_dirty: false,
             focus: cx.focus_handle(),
+            images: Default::default(),
+            viewer: None,
+            viewer_focus: cx.focus_handle(),
+            revealed: Default::default(),
             filter_input,
             font_input,
             filter_error: None,
@@ -371,6 +401,7 @@ impl Vortex {
             applied_square: None,
             focus_filter_next_frame: false,
             palette_next_frame: None,
+            debug_view: false,
             icon_sheet: false,
             tip_sheet: false,
             fps: FpsMeter::default(),
@@ -488,8 +519,10 @@ impl Vortex {
             // `select` (a recent post with some text) or `select:<query>` (the
             // newest buffered event matching a filter query, without changing
             // the visible filter); scrolls it into view.
-            Ok(v) if v == "select" || v.starts_with("select:") => {
-                let query = v.strip_prefix("select:").unwrap_or("type:post len>40");
+            // `view:<query>` also opens the media viewer.
+            Ok(v) if v == "select" || v.starts_with("select:") || v.starts_with("view:") => {
+                self.debug_view = v.starts_with("view:");
+                let query = v.strip_prefix("select:").or(v.strip_prefix("view:")).unwrap_or("type:post len>40");
                 let Ok(filter) = Filter::parse(query) else { return };
                 let found = {
                     let view = self.engine.store.view();
@@ -1328,14 +1361,11 @@ impl Vortex {
                     )
                     .child(div().flex_none().w(t.ch * 16.).truncate().text_color(t.fg_faint).child(r.did.clone()))
                     .child(
-                        div()
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .gap(px(2.))
-                            .w(t.ch * 6.)
-                            .overflow_hidden()
-                            .children(r.marks.iter().map(|m| icon(*m, t.fg_dim, t.font_size * 0.9))),
+                        div().flex().flex_none().items_center().gap(px(2.)).w(t.ch * 6.).overflow_hidden().children(
+                            r.marks.iter().map(|m| {
+                                icon(*m, if *m == Icon::Warn { t.orange } else { t.fg_dim }, t.font_size * 0.9)
+                            }),
+                        ),
                     )
                     .child(
                         div()
@@ -1375,6 +1405,7 @@ impl Vortex {
                     (Icon::Image, "images"),
                     (Icon::Video, "video"),
                     (Icon::Link, "link"),
+                    (Icon::Warn, "labeled"),
                 ],
             )))
             .child(div().flex_1().child("text"));
@@ -1540,6 +1571,13 @@ impl Vortex {
         head = head.child(self.render_context(e, t, cx));
         let did = e.did.to_string();
         let collection = e.collection_str();
+        if let Some(record) = e.record_json().and_then(|r| serde_json::from_str::<serde_json::Value>(r).ok()) {
+            let owner = e.at_uri().unwrap_or_else(|| format!("event:{}", e.id));
+            let (view, pending) = self.post_view_for(collection, &owner);
+            if let Some(block) = self.media_block(&owner, &did, collection, &record, view, pending, t, cx) {
+                head = head.child(block);
+            }
+        }
         let mut actions = div().flex().flex_wrap().gap(t.pad).pt(t.pad);
         actions = actions
             .child(
@@ -1783,6 +1821,50 @@ impl Vortex {
                         })),
                 )
             })
+            .child(
+                div()
+                    .id("set-media")
+                    .flex()
+                    .items_center()
+                    .h(t.row)
+                    .gap(t.ch)
+                    .tooltip(tip("media", None, Some("load images, avatars and video previews")))
+                    .child(div().w(t.ch * 18.).whitespace_nowrap().flex_none().text_color(t.fg_dim).child("media"))
+                    .children([("load", true), ("off", false)].map(|(label, on)| {
+                        self.chip(label, self.cfg.config.media.load == on, t).on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, _, cx| {
+                                this.cfg.config.media.load = on;
+                                this.config_changed(cx);
+                            }),
+                        )
+                    })),
+            )
+            .child(
+                div()
+                    .id("set-labeled")
+                    .flex()
+                    .items_center()
+                    .h(t.row)
+                    .gap(t.ch)
+                    .tooltip(tip(
+                        "labeled media",
+                        None,
+                        Some("media under adult, graphic or warning labels: hidden behind a click, or shown directly"),
+                    ))
+                    .child(
+                        div().w(t.ch * 18.).whitespace_nowrap().flex_none().text_color(t.fg_dim).child("labeled media"),
+                    )
+                    .children([("hide", false), ("show", true)].map(|(label, on)| {
+                        self.chip(label, self.cfg.config.media.reveal_labeled == on, t).on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, _, cx| {
+                                this.cfg.config.media.reveal_labeled = on;
+                                this.config_changed(cx);
+                            }),
+                        )
+                    })),
+            )
             .child(
                 div()
                     .flex()
@@ -2140,6 +2222,30 @@ impl Vortex {
         }
     }
 
+    fn on_viewer_prev(&mut self, _: &ViewerPrev, _: &mut Window, cx: &mut Context<Self>) {
+        self.viewer_step(-1, cx);
+    }
+
+    fn on_viewer_next(&mut self, _: &ViewerNext, _: &mut Window, cx: &mut Context<Self>) {
+        self.viewer_step(1, cx);
+    }
+
+    fn on_viewer_close(&mut self, _: &ViewerClose, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_viewer(window, cx);
+    }
+
+    fn on_viewer_open(&mut self, _: &ViewerOpen, _: &mut Window, cx: &mut Context<Self>) {
+        self.viewer_open_external(cx);
+    }
+
+    fn on_viewer_pause(&mut self, _: &ViewerPause, _: &mut Window, cx: &mut Context<Self>) {
+        self.viewer_toggle_pause(cx);
+    }
+
+    fn on_viewer_mute(&mut self, _: &ViewerMute, _: &mut Window, cx: &mut Context<Self>) {
+        self.viewer_toggle_mute(cx);
+    }
+
     fn on_open_palette(&mut self, _: &OpenPalette, window: &mut Window, cx: &mut Context<Self>) {
         if self.palette_open {
             self.close_palette(window, cx);
@@ -2259,6 +2365,9 @@ impl Render for Vortex {
             self.open_palette(window, cx);
             self.palette_input.update(cx, |i, cx| i.set_text(&text, cx));
         }
+        if self.debug_view {
+            self.debug_open_viewer(window, cx);
+        }
         if std::mem::take(&mut self.focus_filter_next_frame) {
             window.focus(&self.filter_input.focus_handle(cx), cx);
         }
@@ -2331,6 +2440,7 @@ impl Render for Vortex {
                 main = main.child(self.render_sidebar(&t, cx)).child(self.resize_handle(Pane::Sidebar, &t));
             }
             self.prepare_inspector();
+            self.prepare_media(cx);
             if self.inspector.is_some() {
                 main = main.child(self.render_inspector(&t, cx));
             } else {
@@ -2379,6 +2489,12 @@ impl Render for Vortex {
             .on_action(cx.listener(Self::inspect_selected))
             .on_action(cx.listener(Self::on_inspect_back))
             .on_action(cx.listener(Self::on_open_palette))
+            .on_action(cx.listener(Self::on_viewer_prev))
+            .on_action(cx.listener(Self::on_viewer_next))
+            .on_action(cx.listener(Self::on_viewer_close))
+            .on_action(cx.listener(Self::on_viewer_open))
+            .on_action(cx.listener(Self::on_viewer_pause))
+            .on_action(cx.listener(Self::on_viewer_mute))
             .on_action(cx.listener(Self::menu_source_jetstream))
             .on_action(cx.listener(Self::menu_source_jetstream_v1))
             .on_action(cx.listener(Self::menu_source_firehose))
@@ -2417,6 +2533,9 @@ impl Render for Vortex {
         if self.palette_open {
             root = root.child(self.render_palette(&t, cx));
         }
+        if let Some(viewer) = self.render_viewer(window, &t, cx) {
+            root = root.child(viewer);
+        }
         #[cfg(debug_assertions)]
         if self.tip_sheet {
             use super::tip::{sample, sample_legend};
@@ -2435,7 +2554,7 @@ impl Render for Vortex {
                 cx.new(|_| {
                     sample_legend(
                         "marks",
-                        &[(Icon::Reply, "reply"), (Icon::Quote, "quote"), (Icon::Image, "images"), (Icon::Video, "video"), (Icon::Link, "link")],
+                        &[(Icon::Reply, "reply"), (Icon::Quote, "quote"), (Icon::Image, "images"), (Icon::Video, "video"), (Icon::Link, "link"), (Icon::Warn, "labeled")],
                     )
                 }),
             ];

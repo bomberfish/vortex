@@ -469,6 +469,37 @@ impl Vortex {
                 .child(div().min_w_0().truncate().text_color(color).child(v))
         };
         let mut out = div().flex().flex_col().gap(px(1.));
+        if let Some(p) = self.lookup_ok(&format!("profile:{repo}")) {
+            let did = p["did"].as_str().unwrap_or("");
+            let hidden =
+                crate::media::media_gate(&crate::media::view_labels(p, did)).is_some() && !self.media_reveal(did);
+            if let (Some(banner), false, true) = (p["banner"].as_str(), hidden, self.cfg.config.media.load) {
+                let src = crate::media::Src::Url(banner.to_owned());
+                out = out.child(
+                    div()
+                        .h(t.row * 6.)
+                        .w_full()
+                        .max_w(t.ch * 120.)
+                        .rounded(t.radius)
+                        .overflow_hidden()
+                        .bg(t.bg_hover)
+                        .child(self.image_el(&src, gpui::ObjectFit::Cover, t)),
+                );
+            }
+            out = out.child(
+                div().flex().items_center().gap(t.ch).py(t.pad).child(self.avatar(p, t.row * 3., t)).child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .child(div().text_color(t.fg).child(p["displayName"].as_str().unwrap_or("").to_owned()))
+                        .child(div().text_color(t.blue).child(format!("@{}", p["handle"].as_str().unwrap_or("?")))),
+                ),
+            );
+            let labels = crate::media::view_labels(p, did);
+            if !labels.is_empty() {
+                out = out.child(self.label_chips(&labels, &format!("repo-{did}"), t));
+            }
+        }
         let ident_key = format!("ident:{repo}");
         if let Some(id) = self.lookup_ok(&ident_key) {
             out = out
@@ -736,6 +767,14 @@ impl Vortex {
         }
         if let Some(p) = self.lookup_ok(&format!("postview:{uri}")) {
             head = head.child(super::lookup::post_counts(p, t));
+        }
+        if let (Some(v), Some(did), Some(coll)) =
+            (self.lookup_ok(&key), self.inspector_did(), i.target.collection.as_deref())
+        {
+            let (view, pending) = self.post_view_for_inspector(coll, &uri);
+            if let Some(block) = self.media_block(&uri, &did, coll, &v["value"], view, pending, t, cx) {
+                head = head.child(block);
+            }
         }
         // JSON, with references clickable; virtualised.
         let n = i.record_lines.as_ref().map_or(0, |(_, l)| l.len());

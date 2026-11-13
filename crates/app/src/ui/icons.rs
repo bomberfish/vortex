@@ -28,10 +28,11 @@ pub enum Icon {
     Right,
     Up,
     Close,
+    Warn,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 22] = [
+    pub const ALL: [Icon; 23] = [
         Icon::Dot,
         Icon::Play,
         Icon::Replay,
@@ -54,6 +55,7 @@ impl Icon {
         Icon::Right,
         Icon::Up,
         Icon::Close,
+        Icon::Warn,
     ];
 
     /// A square grid of cells; `#` is lit. Most icons are 7×7.
@@ -93,6 +95,7 @@ impl Icon {
             Icon::Right => &[".......", "....#..", "....##.", "#######", "....##.", "....#..", "......."],
             Icon::Up => &["...#...", "..###..", ".#####.", "...#...", "...#...", "...#...", "...#..."],
             Icon::Close => &[".......", "##...##", ".##.##.", "..###..", ".##.##.", "##...##", "......."],
+            Icon::Warn => &["...#...", "..###..", "..#.#..", ".##.##.", ".##.##.", "#######", "###.###"],
         }
     }
 

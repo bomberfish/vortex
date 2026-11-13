@@ -116,6 +116,7 @@ pub fn row_data(e: &Event, max_chars: usize) -> RowData {
         (Flags::IMAGES, Icon::Image),
         (Flags::VIDEO, Icon::Video),
         (Flags::LINK, Icon::Link),
+        (Flags::LABELS, Icon::Warn),
     ] {
         if e.flags.contains(flag) {
             marks.push(mark);

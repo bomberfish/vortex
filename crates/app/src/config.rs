@@ -175,6 +175,21 @@ impl Default for FilterSettings {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MediaSettings {
+    /// Load images, avatars and video previews.
+    pub load: bool,
+    /// Show media under adult, graphic or warning labels without a click.
+    pub reveal_labeled: bool,
+}
+
+impl Default for MediaSettings {
+    fn default() -> Self {
+        MediaSettings { load: true, reveal_labeled: false }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Config {
@@ -182,6 +197,7 @@ pub struct Config {
     pub source: SourceSettings,
     pub buffer: BufferSettings,
     pub filter: FilterSettings,
+    pub media: MediaSettings,
     /// Per-color overrides on top of the theme, e.g. `accent = "#ff8800"`.
     pub colors: BTreeMap<String, String>,
     /// User themes: `[themes.name]` with color keys and an optional `base`.

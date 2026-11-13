@@ -73,14 +73,36 @@ Pinned collections stay at the top in a fixed order.
 
 The **list** shows time, operation (`+` create, `~` update, `-` delete, `@`
 identity, `!` account), type, author, marks (reply, quote, images, video,
-link) and text. Tail mode (`space`) follows new events. Scrolling up pauses
-it, and `r` jumps back to the selected row.
+link, labeled) and text. Tail mode (`space`) follows new events. Scrolling
+up pauses it, and `r` jumps back to the selected row.
 
 The **detail pane** shows the event and its raw JSON. It also looks up
 context once the selection settles: the author's profile, follower counts
 and PDS, the post being liked, reposted, replied to or quoted (with its
 counts), the account being followed or blocked, and a post's own like,
 repost, reply and quote counts. Click any of them to inspect it.
+
+### Media and labels
+
+Posts show their images, video thumbnails, GIFs and link cards in the detail
+pane and the inspector, with avatars next to every looked-up account and the
+banner on a repo page. Profiles, lists, feed generators and labelers show
+their avatars and banners; records from other lexicons list their blobs.
+Click a tile to open the viewer: `←` `→` (or `h` `l`) step through, `space`
+pauses video, `m` mutes, `o` opens the original, `esc` closes. Hover a tile
+for its alt text.
+
+Content labels are shown before the media they apply to: self-labels from
+the record, plus labeler labels from the AppView, each naming the labeler
+that applied it. Media under adult, graphic or warning labels stays behind a
+"click to show" placeholder until you reveal it, and isn't downloaded until
+then. Events carrying labels get a warning mark in the list. **media** and
+**labeled media** in settings turn loading off or show labeled media
+directly.
+
+Images come from the Bluesky CDN, video thumbnails and HLS playback from
+`video.bsky.app`, and anything else straight from the account's PDS.
+Video playback uses GStreamer (see [Development](#development)).
 
 ### Inspector
 
@@ -174,6 +196,7 @@ bandwidth. Turn it off to keep the whole stream buffered for later queries.
 | `o` `↵` | open on bsky.app (pdsls for other records) |
 | `p` | open on pdsls.dev |
 | `esc` | close help, settings, inspector or welcome; then deselect |
+| `←` `→` `space` `m` `o` | media viewer: step, pause, mute, open original |
 | `⌘P` `⌘⇧P` | command palette |
 | `⌘[` `⌘]` `⌘↑` | inspector back / forward / up |
 | `⌘↵` | connect / disconnect |
@@ -223,6 +246,10 @@ pinned = [                 # sidebar order
   "app.bsky.graph.list", "app.bsky.graph.listitem", "app.bsky.graph.starterpack",
   "app.bsky.feed.generator", "app.bsky.feed.threadgate", "app.bsky.feed.postgate",
 ]
+
+[media]
+load = true                # fetch images, avatars and video thumbnails
+reveal_labeled = false     # show media under adult/graphic labels without a click
 
 [buffer]
 events = 300000            # kept for instant re-filtering
@@ -343,7 +370,8 @@ replay and for re-filtering large buffers interactively. The app itself
 
 ```
 crates/core   vortex-core: decode, filter, store, pipeline, net (no UI)
-crates/app    vortex: GPUI app (ui/, atp.rs lookups, config, themes)
+crates/app    vortex: GPUI app (ui/, atp.rs lookups, media.rs, config, themes)
+crates/video  gpui-video-player, vendored for gpui-pre (GStreamer playback)
 assets/       zstd dictionaries, bundled font
 docs/         screenshots
 ```
@@ -355,6 +383,13 @@ VORTEX_FIREHOSE_CAPTURE=target/firehose.capture \
   cargo test --release -p vortex-core differential_capture   # new vs. reference firehose decoder
 cargo fmt                                             # rustfmt.toml: width 120
 ```
+
+Video playback is the default `video` feature and needs GStreamer 1.24+
+with the good, bad and libav plugin sets (`brew install gstreamer` on macOS).
+Build with `--no-default-features` to leave it out; videos then show their
+thumbnail and open in the browser. `crates/video` is
+[gpui-video-player](https://github.com/cijiugechu/gpui-video-player) (MIT),
+adapted to the GPUI version vortex uses.
 
 Debug builds accept `VORTEX_DEBUG` to put the UI into a state a few seconds
 after launch (`VORTEX_DEBUG_AT=<ticks>`, 30 per second, to wait longer), for

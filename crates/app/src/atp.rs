@@ -242,6 +242,26 @@ impl Client {
         self.get(PLC, &format!("/{did}/log/audit"), &[], true)
     }
 
+    /// Raw bytes and content type from `url` (media), up to `limit` bytes.
+    /// Not cached here: decoded images are cached by the UI.
+    pub fn get_bytes(&self, url: &str, limit: u64) -> Res<(Vec<u8>, Option<String>)> {
+        let mut res = self.agent.get(url).call().map_err(|e| short_err(&e.to_string()))?;
+        let status = res.status().as_u16();
+        if status >= 400 {
+            return Err(format!("HTTP {status}"));
+        }
+        let ct = res.headers().get("content-type").and_then(|v| v.to_str().ok()).map(str::to_owned);
+        let bytes = res.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| short_err(&e.to_string()))?;
+        Ok((bytes, ct))
+    }
+
+    /// The URL of a blob on its owner's PDS.
+    pub fn blob_url(&self, did: &str, cid: &str) -> Res<String> {
+        let id = self.identity(did)?;
+        let pds = id.pds.ok_or("no PDS in DID document")?;
+        Ok(format!("{pds}/xrpc/com.atproto.sync.getBlob?did={did}&cid={cid}"))
+    }
+
     /// Backlink counts to a DID or AT-URI, by collection and path.
     pub fn backlinks(&self, target: &str) -> Res<Json> {
         self.get(CONSTELLATION, "/links/all", &[("target", target)], true)

@@ -127,11 +127,17 @@ impl Vortex {
 
         // Author.
         let mut author = div().flex().flex_col().min_w_0().flex_1();
+        let mut author_avatar = None;
         match self.lookup(&format!("profile:{did}")) {
             Some(Fetch::Done(Ok(p))) => {
+                author_avatar = Some(self.avatar(p, t.row * 2., t));
                 author = author
                     .child(profile_line(p, t))
                     .child(div().text_color(t.fg_faint).truncate().child(profile_stats(p)));
+                let labels = crate::media::view_labels(p, &did);
+                if !labels.is_empty() {
+                    author = author.child(self.label_chips(&labels, &format!("acct-{did}"), t));
+                }
             }
             Some(Fetch::Done(Err(err))) => {
                 author = author.child(div().text_color(t.orange).truncate().child(err.clone()))
@@ -162,6 +168,7 @@ impl Vortex {
                 .tooltip(tip("author", None, Some("click to inspect this repo")))
                 .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| this.inspect(target.clone(), cx)))
                 .child(label("by", t))
+                .children(author_avatar)
                 .child(author),
         );
 
@@ -191,6 +198,11 @@ impl Vortex {
                 Ref::Record(u) => (String::new(), u.clone()),
             };
             let mut body = div().flex().flex_col().min_w_0().flex_1();
+            let ref_avatar = match (&r, self.lookup_ok(&key)) {
+                (Ref::Post(_), Some(p)) => Some(self.avatar(&p["author"], t.row * 2., t)),
+                (Ref::Actor(_), Some(p)) => Some(self.avatar(p, t.row * 2., t)),
+                _ => None,
+            };
             match (&r, self.lookup(&key)) {
                 (Ref::Post(_), Some(Fetch::Done(Ok(p)))) => {
                     let author = &p["author"];
@@ -258,6 +270,7 @@ impl Vortex {
                         }),
                     )
                     .child(label(name, t))
+                    .children(ref_avatar)
                     .child(body),
             );
         }
