@@ -1,30 +1,50 @@
-use gpui_kit::component::button::*;
-use gpui_kit::component::*;
-use gpui_kit::*;
+//! vortex — a live viewer for AT Protocol event streams.
 
-pub struct HelloWorld;
-impl Render for HelloWorld {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .v_flex()
-            .gap_2()
-            .size_full()
-            .items_center()
-            .justify_center()
-            .child("Hello, World!")
-            .child(
-                Button::new("ok")
-                    .primary()
-                    .label("Let's Go!")
-                    .on_click(|_, _, _| println!("Clicked!")),
-            )
-    }
-}
+mod config;
+mod theme;
+mod ui;
+
+use config::{config_path, ConfigFile};
+use gpui::{px, size, App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
+use std::borrow::Cow;
+use theme::{resolve_palette, Theme};
+use ui::app::Vortex;
+use vortex_core::engine::Engine;
+
+/// The default UI font, embedded so the app looks the same everywhere.
+static BUNDLED_FONT_BYTES: &[u8] = include_bytes!("../../../assets/fonts/Berkeley.ttf");
 
 fn main() {
-    gpui_kit::application().run(move |cx| {
-        gpui_kit::init(cx);
-        gpui_kit::open_window(WindowOptions::default(), cx, |_, cx| cx.new(|_| HelloWorld))
-            .expect("Failed to open window");
+    let cfg = ConfigFile::load(config_path());
+    let engine = Engine::new(cfg.config.buffer.to_store());
+
+    gpui_platform::application().run(move |cx: &mut App| {
+        if let Err(e) = cx.text_system().add_fonts(vec![Cow::Borrowed(BUNDLED_FONT_BYTES)]) {
+            eprintln!("vortex: could not load bundled font: {e}");
+        }
+        // A provisional theme so the first frame is already styled; the view
+        // rebuilds it once fonts are validated.
+        let (palette, _) = resolve_palette(&cfg.config);
+        cx.set_global(Theme::build(&cfg.config, palette, config::BUNDLED_FONT.into()));
+
+        ui::input::bind_keys(cx);
+        ui::app::bind_keys(cx);
+
+        let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(TitlebarOptions { title: Some("vortex".into()), ..Default::default() }),
+            window_min_size: Some(size(px(640.), px(360.))),
+            ..Default::default()
+        };
+        cx.open_window(options, move |window, cx| cx.new(|cx| Vortex::new(engine, cfg, window, cx)))
+            .expect("open main window");
+        cx.on_window_closed(|cx, _| {
+            if cx.windows().is_empty() {
+                cx.quit();
+            }
+        })
+        .detach();
+        cx.activate(true);
     });
 }
