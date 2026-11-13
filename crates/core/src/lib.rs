@@ -13,3 +13,4 @@ pub mod event;
 pub mod json;
 pub mod nsid;
 pub mod time;
+pub mod filter;
