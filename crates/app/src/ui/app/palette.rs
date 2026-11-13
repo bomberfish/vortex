@@ -29,6 +29,25 @@ pub(super) enum Cmd {
     Quit,
 }
 
+impl Cmd {
+    /// Whether running this from the welcome screen should reveal the event
+    /// view. Overlays (settings) and preferences leave the welcome screen up.
+    pub(super) fn leaves_welcome(&self) -> bool {
+        !matches!(
+            self,
+            Cmd::Settings
+                | Cmd::NextTheme
+                | Cmd::Theme(_)
+                | Cmd::OpenConfig
+                | Cmd::Welcome
+                | Cmd::FpsMeter
+                | Cmd::ServerFilter
+                | Cmd::Compression
+                | Cmd::Quit
+        )
+    }
+}
+
 pub(super) struct Entry {
     pub label: String,
     pub keys: &'static str,
@@ -120,7 +139,9 @@ impl Vortex {
     }
 
     pub(super) fn run_cmd(&mut self, cmd: Cmd, window: &mut Window, cx: &mut Context<Self>) {
-        self.show_welcome = false;
+        if cmd.leaves_welcome() {
+            self.show_welcome = false;
+        }
         match cmd {
             Cmd::Inspect(t) => self.inspect(t, cx),
             Cmd::ToggleConnect => self.toggle_connect(&ToggleConnect, window, cx),
@@ -255,5 +276,22 @@ impl Vortex {
             ),
         )
         .with_priority(2)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overlays_and_preferences_keep_the_welcome_screen() {
+        for cmd in [Cmd::Settings, Cmd::NextTheme, Cmd::Theme("nord".into()), Cmd::OpenConfig, Cmd::FpsMeter] {
+            assert!(!cmd.leaves_welcome());
+        }
+        for cmd in
+            [Cmd::Help, Cmd::Source(SourceKind::Firehose), Cmd::Replay(300), Cmd::ToggleConnect, Cmd::FocusFilter]
+        {
+            assert!(cmd.leaves_welcome());
+        }
     }
 }

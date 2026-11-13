@@ -1864,6 +1864,8 @@ impl Vortex {
     fn toggle_help(&mut self, _: &ToggleHelp, _: &mut Window, cx: &mut Context<Self>) {
         self.show_help = !self.show_help;
         if self.show_help {
+            // Help lives in the detail pane, which the welcome screen hides.
+            self.show_welcome = false;
             self.cfg.config.ui.detail = true;
         }
         cx.notify();
