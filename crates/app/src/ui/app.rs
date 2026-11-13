@@ -9,6 +9,7 @@ mod inspect;
 mod lookup;
 mod media_view;
 mod palette;
+mod rich;
 mod welcome;
 
 use super::complete::{complete, Completion};
@@ -210,6 +211,8 @@ pub struct Vortex {
     viewer_focus: FocusHandle,
     /// Records (by URI) whose labeled media the user chose to show.
     revealed: std::collections::HashSet<String>,
+    /// Images a render wanted but the cache didn't have; fetched after it.
+    images_wanted: std::cell::RefCell<Vec<crate::media::Src>>,
     filter_input: Entity<TextInput>,
     font_input: Entity<TextInput>,
 
@@ -361,6 +364,7 @@ impl Vortex {
             viewer: None,
             viewer_focus: cx.focus_handle(),
             revealed: Default::default(),
+            images_wanted: Default::default(),
             filter_input,
             font_input,
             filter_error: None,
@@ -519,10 +523,15 @@ impl Vortex {
             // `select` (a recent post with some text) or `select:<query>` (the
             // newest buffered event matching a filter query, without changing
             // the visible filter); scrolls it into view.
-            // `view:<query>` also opens the media viewer.
-            Ok(v) if v == "select" || v.starts_with("select:") || v.starts_with("view:") => {
+            // `view:<query>` also opens the media viewer; `isel:<query>`
+            // inspects the event.
+            Ok(v) if v == "select" || v.starts_with("select:") || v.starts_with("view:") || v.starts_with("isel:") => {
                 self.debug_view = v.starts_with("view:");
-                let query = v.strip_prefix("select:").or(v.strip_prefix("view:")).unwrap_or("type:post len>40");
+                let query = v
+                    .strip_prefix("select:")
+                    .or(v.strip_prefix("view:"))
+                    .or(v.strip_prefix("isel:"))
+                    .unwrap_or("type:post len>40");
                 let Ok(filter) = Filter::parse(query) else { return };
                 let found = {
                     let view = self.engine.store.view();
@@ -533,6 +542,13 @@ impl Vortex {
                 self.select(found.map(|(_, id)| id), cx);
                 if let Some((ix, _)) = found {
                     self.scroll.scroll_to_item(ix, ScrollStrategy::Center);
+                }
+                if v.starts_with("isel:") {
+                    if let Some(target) =
+                        self.detail.as_ref().and_then(|d| d.event.at_uri()).and_then(|u| crate::atp::parse_target(&u))
+                    {
+                        self.inspect(target, cx);
+                    }
                 }
             }
             Ok("settings") => self.show_settings = true,
@@ -1343,10 +1359,14 @@ impl Vortex {
                     .when(!is_sel, |d| d.hover(move |s| s.bg(hover)))
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(move |this, _, window, cx| {
+                        cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
                             this.follow = false;
                             this.select(Some(id), cx);
                             window.focus(&this.focus, cx);
+                            // Double-click inspects the record (or repo).
+                            if ev.click_count == 2 {
+                                this.inspect_selected(&InspectSelected, window, cx);
+                            }
                         }),
                     )
                     .child(div().flex_none().w(t.ch * 12.5).text_color(t.fg_faint).child(r.time.clone()))
@@ -1537,15 +1557,16 @@ impl Vortex {
             when.push_str(&format!("  created {}", fmt_duration_us(e.created_us - e.time_us)));
         }
         head = head.child(div().text_color(t.fg_faint).truncate().child(when));
+        let record = e.record_json().and_then(|r| serde_json::from_str::<serde_json::Value>(r).ok());
         if !e.text().is_empty() {
+            // Posts get their facets (mentions, links, tags) highlighted
+            // and clickable; facet offsets index the record's own text.
+            let body = match record.as_ref().filter(|_| e.collection_str() == "app.bsky.feed.post") {
+                Some(r) => self.rich_text("detail-rich", r["text"].as_str().unwrap_or(""), &r["facets"], t, cx),
+                None => SharedString::from(e.text().to_owned()).into_any_element(),
+            };
             head = head.child(
-                div()
-                    .id("detail-text")
-                    .py(t.pad)
-                    .max_h(t.row * 10.)
-                    .overflow_y_scroll()
-                    .text_color(t.fg)
-                    .child(SharedString::from(e.text().to_owned())),
+                div().id("detail-text").py(t.pad).max_h(t.row * 10.).overflow_y_scroll().text_color(t.fg).child(body),
             );
         }
         let mut meta = Vec::new();
@@ -1568,16 +1589,18 @@ impl Vortex {
             head = head.child(div().text_color(t.fg_dim).truncate().child(m));
         }
 
-        head = head.child(self.render_context(e, t, cx));
         let did = e.did.to_string();
         let collection = e.collection_str();
-        if let Some(record) = e.record_json().and_then(|r| serde_json::from_str::<serde_json::Value>(r).ok()) {
+        if let Some(record) = &record {
             let owner = e.at_uri().unwrap_or_else(|| format!("event:{}", e.id));
             let (view, pending) = self.post_view_for(collection, &owner);
-            if let Some(block) = self.media_block(&owner, &did, collection, &record, view, pending, t, cx) {
+            if let Some(block) =
+                self.media_block(&owner, &did, collection, record, view.map(|v| &**v), pending, 7., t, cx)
+            {
                 head = head.child(block);
             }
         }
+        head = head.child(self.render_context(e, t, cx));
         let mut actions = div().flex().flex_wrap().gap(t.pad).pt(t.pad);
         actions = actions
             .child(
@@ -2440,6 +2463,7 @@ impl Render for Vortex {
                 main = main.child(self.render_sidebar(&t, cx)).child(self.resize_handle(Pane::Sidebar, &t));
             }
             self.prepare_inspector();
+            self.fetch_record_refs(cx);
             self.prepare_media(cx);
             if self.inspector.is_some() {
                 main = main.child(self.render_inspector(&t, cx));
@@ -2588,6 +2612,12 @@ impl Render for Vortex {
                 words = words.child(icon(i, t.accent, t.font_size)).child(w);
             }
             root = root.child(sheet.child(words));
+        }
+        let wanted = std::mem::take(&mut *self.images_wanted.borrow_mut());
+        if self.cfg.config.media.load {
+            for src in wanted {
+                self.request_image(&src, cx);
+            }
         }
         if let Some(start) = frame_start {
             root = root.child(self.fps.probe(start));

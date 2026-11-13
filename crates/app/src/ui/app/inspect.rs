@@ -753,29 +753,35 @@ impl Vortex {
             .collect()
     }
 
+    /// A record, split: on the left everything that can be read from it
+    /// (who, when, what it says and shows, what it points at, every
+    /// field, backlinks); on the right the JSON itself.
     fn render_record_page(&self, i: &Inspector, t: &Theme, cx: &mut Context<Self>) -> Div {
         let uri = i.target.uri();
-        let mut head = div().flex().flex_col().flex_none().gap(px(1.)).pb(t.pad);
         let key = key_record(&uri);
+        let coll = i.target.collection.as_deref().unwrap_or("");
+        let rkey = i.target.rkey.as_deref().unwrap_or("");
+
+        let mut info =
+            div().id("rec-info").flex().flex_col().flex_1().min_w_0().h_full().overflow_y_scroll().p(t.pad).gap(t.pad);
         if let Some(s) = self.status_line(&key, "record", t) {
-            head = head.child(s);
+            info = info.child(s);
         }
-        if let Some(v) = self.lookup_ok(&key) {
-            head = head.child(
-                div().text_color(t.fg_faint).truncate().child(format!("cid {}", v["cid"].as_str().unwrap_or("–"))),
-            );
+        info = info.child(self.record_info(&uri, coll, rkey, t, cx));
+        let links = key_links(&uri);
+        let mut backlinks = div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .pt(t.pad)
+            .border_t_1()
+            .border_color(t.border)
+            .child(div().text_color(t.fg_faint).child("backlinks"));
+        if let Some(s) = self.status_line(&links, "backlinks", t) {
+            backlinks = backlinks.child(s);
         }
-        if let Some(p) = self.lookup_ok(&format!("postview:{uri}")) {
-            head = head.child(super::lookup::post_counts(p, t));
-        }
-        if let (Some(v), Some(did), Some(coll)) =
-            (self.lookup_ok(&key), self.inspector_did(), i.target.collection.as_deref())
-        {
-            let (view, pending) = self.post_view_for_inspector(coll, &uri);
-            if let Some(block) = self.media_block(&uri, &did, coll, &v["value"], view, pending, t, cx) {
-                head = head.child(block);
-            }
-        }
+        info = info.child(backlinks.children(self.backlink_rows(&links, t)));
+
         // JSON, with references clickable; virtualised.
         let n = i.record_lines.as_ref().map_or(0, |(_, l)| l.len());
         let json = uniform_list(
@@ -786,23 +792,18 @@ impl Vortex {
         .track_scroll(&i.record_scroll)
         .flex_1()
         .w_full();
-        let links = key_links(&uri);
-        let mut backlinks = div()
-            .id("rec-backlinks")
+        let json_pane = div()
             .flex()
             .flex_col()
             .flex_none()
-            .max_h(t.row * 9.)
-            .overflow_y_scroll()
-            .pt(t.pad)
-            .border_t_1()
+            .w(gpui::relative(0.46))
+            .h_full()
+            .border_l_1()
             .border_color(t.border)
-            .child(div().text_color(t.fg_faint).child("backlinks"));
-        if let Some(s) = self.status_line(&links, "backlinks", t) {
-            backlinks = backlinks.child(s);
-        }
-        backlinks = backlinks.children(self.backlink_rows(&links, t));
-        div().flex().flex_col().flex_1().min_h_0().p(t.pad).child(head).child(json).child(backlinks)
+            .bg(t.bg_alt)
+            .child(self.section("json", t))
+            .child(div().flex().flex_col().flex_1().min_h_0().px(t.pad).child(json));
+        div().flex().flex_1().min_h_0().child(info).child(json_pane)
     }
 
     fn render_record_lines(&mut self, range: std::ops::Range<usize>, cx: &mut Context<Self>) -> Vec<Div> {

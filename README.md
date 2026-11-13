@@ -76,11 +76,14 @@ identity, `!` account), type, author, marks (reply, quote, images, video,
 link, labeled) and text. Tail mode (`space`) follows new events. Scrolling
 up pauses it, and `r` jumps back to the selected row.
 
-The **detail pane** shows the event and its raw JSON. It also looks up
-context once the selection settles: the author's profile, follower counts
-and PDS, the post being liked, reposted, replied to or quoted (with its
-counts), the account being followed or blocked, and a post's own like,
-repost, reply and quote counts. Click any of them to inspect it.
+The **detail pane** shows the event and its raw JSON. A post's mentions,
+links and hashtags are highlighted: click to inspect the account, open the
+link, or filter by the tag. Once the selection settles it also looks up
+context: the author's profile, follower counts and PDS, and the post being
+liked, reposted, replied to or quoted, shown as a card with its author,
+text, media, its own quote and its counts. Followed or blocked accounts
+get a profile card. Click any of them to inspect it. Double-click a row
+(or press `i`) to open the event in the inspector.
 
 ### Media and labels
 
@@ -106,18 +109,26 @@ Video playback uses GStreamer (see [Development](#development)).
 
 ### Inspector
 
-![Inspecting a record: CID, counts, JSON with clickable references, backlinks](docs/screenshots/inspector-record.png)
+![Inspecting a post: what it says and shows on the left, its JSON on the right](docs/screenshots/inspector-record.png)
 
-Press `i` on an event, click a looked-up account or post, or paste anything
-into `⌘P`: a handle, DID, `at://` URI, bsky.app link or pdsls link.
+Press `i` on an event (or double-click it), click a looked-up account or
+post, or paste anything into `⌘P`: a handle, DID, `at://` URI, bsky.app
+link or pdsls link.
 
-- **Repos** show handle, DID, PDS, aliases, signing key and profile, with
-  tabs for collections, PLC history and backlinks. History is summarised as
-  changes, such as "handle @a → @b" or a PDS migration.
+- **Repos** show banner, avatar, handle, DID, PDS, aliases, signing key and
+  profile, with tabs for collections, PLC history and backlinks. History is
+  summarised as changes, such as "handle @a → @b" or a PDS migration.
 - **Collections** list records 100 at a time, with "load more".
-- **Records** show CID, like/repost/reply/quote counts, the JSON (any line
-  holding an `at://` URI or DID is a link) and backlinks from
-  [constellation](https://constellation.microcosm.blue).
+- **Records** are split. On the left is everything that can be read from
+  the record: type, creation time, the time encoded in a TID record key,
+  CID and when the AppView indexed it. Then the author, what the record
+  points at (the post replied to and the thread root, the liked or
+  reposted post, the followed account, the list), and the record itself:
+  a post as a card with its text, media, quote and counts, or another
+  record's media and description. After that comes every field summarised
+  on one line, which works for any lexicon, and backlinks from
+  [constellation](https://constellation.microcosm.blue). On the right is
+  the JSON; any line holding an `at://` URI or DID is a link.
 
 `⌘[` `⌘]` go back and forward, `⌘↑` goes up a level, the breadcrumbs are
 clickable, and `esc` returns to the stream. **filter** limits the stream to
@@ -191,7 +202,7 @@ bandwidth. Turn it off to keep the whole stream buffered for later queries.
 | `g` `G` `home` `end` `pgup` `pgdn` `ctrl-u` `ctrl-d` | jump, page |
 | `space` `f` | tail on/off |
 | `r` | scroll back to the selected row |
-| `i` | inspect the selected record or repo |
+| `i`, double-click | inspect the selected record or repo |
 | `c` `u` | copy event JSON / AT-URI |
 | `o` `↵` | open on bsky.app (pdsls for other records) |
 | `p` | open on pdsls.dev |
@@ -296,14 +307,14 @@ cargo run --release --bin vortex-bench-firehose -- bench target/firehose.capture
 ## How it works
 
 ```
- net thread (tokio, current-thread)       pipeline thread (+ rayon on bursts)
- ┌───────────────────────────────┐ frames ┌─────────────────────────────────────┐
- │ websocket · reconnect · resume ├───────▶│ zstd · decode · dedup · filter       │
- └───────────────▲───────────────┘ bounded └──────────────────┬──────────────────┘
-                 │ commands                                   │ batches
-            ┌────┴─────┐                                 ┌────▼────┐
-            │  Engine  │◀────────────── UI ─────────────▶│  Store  │
-            └──────────┘     (never blocks on either)    └─────────┘
+ net thread (tokio, current-thread)          pipeline thread (+ rayon on bursts)
+ ┌────────────────────────────────┐  frames  ┌────────────────────────────────┐
+ │ websocket · reconnect · resume ├─────────▶│ zstd · decode · dedup · filter │
+ └────────────────▲───────────────┘ bounded  └────────────────┬───────────────┘
+                  │ commands                                  │ batches
+            ┌─────┴────┐                                 ┌────▼────┐
+            │  Engine  │◀───────────── UI ──────────────▶│  Store  │
+            └──────────┘    (never blocks on either)     └─────────┘
 ```
 
 - **`crates/core`** has no UI dependency and is fully testable headless.
@@ -398,6 +409,7 @@ screenshots and visual checks without driving the mouse or keyboard:
 | value | effect |
 | --- | --- |
 | `select`, `select:<query>` | select a recent post, or the newest event matching a query; closes the welcome screen |
+| `view:<query>`, `isel:<query>` | the same, then open its media in the viewer, or inspect it |
 | `settings` | open settings |
 | `inspect:<handle, DID or at:// URI>[#history\|#backlinks]` | open the inspector |
 | `palette:<text>` | open the palette with text |

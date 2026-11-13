@@ -145,14 +145,19 @@ impl Vortex {
                 .text_color(t.fg_faint)
                 .child(e.clone())
                 .into_any_element(),
-            _ => div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(t.fg_faint)
-                .child("…")
-                .into_any_element(),
+            other => {
+                if other.is_none() {
+                    self.images_wanted.borrow_mut().push(src.clone());
+                }
+                div()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_color(t.fg_faint)
+                    .child("…")
+                    .into_any_element()
+            }
         }
     }
 
@@ -334,8 +339,9 @@ impl Vortex {
         did: &str,
         collection: &str,
         record: &Value,
-        view: Option<&Json>,
+        view: Option<&Value>,
         pending: bool,
+        tile_rows: f32,
         t: &Theme,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
@@ -353,7 +359,7 @@ impl Vortex {
         let visual: Vec<usize> =
             (0..items.len()).filter(|i| matches!(items[*i].kind, Kind::Image | Kind::Gif | Kind::Video)).collect();
         if !visual.is_empty() {
-            let h = t.row * 7.;
+            let h = t.row * tile_rows;
             let single_w =
                 (visual.len() == 1).then(|| items[visual[0]].aspect.map(|a| h * a.clamp(0.4, 3.0))).flatten();
             let mut tiles = div().flex().gap(px(2.)).h(h);

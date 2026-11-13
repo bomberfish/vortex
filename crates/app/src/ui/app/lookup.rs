@@ -190,88 +190,10 @@ impl Vortex {
             }
         }
 
-        // What it points at.
-        for (i, (name, r)) in event_refs(e).into_iter().enumerate() {
-            let (key, inspect_uri) = match &r {
-                Ref::Post(u) => (format!("post:{u}"), u.clone()),
-                Ref::Actor(d) => (format!("profile:{d}"), d.clone()),
-                Ref::Record(u) => (String::new(), u.clone()),
-            };
-            let mut body = div().flex().flex_col().min_w_0().flex_1();
-            let ref_avatar = match (&r, self.lookup_ok(&key)) {
-                (Ref::Post(_), Some(p)) => Some(self.avatar(&p["author"], t.row * 2., t)),
-                (Ref::Actor(_), Some(p)) => Some(self.avatar(p, t.row * 2., t)),
-                _ => None,
-            };
-            match (&r, self.lookup(&key)) {
-                (Ref::Post(_), Some(Fetch::Done(Ok(p)))) => {
-                    let author = &p["author"];
-                    body = body
-                        .child(
-                            div()
-                                .flex()
-                                .gap(t.ch)
-                                .min_w_0()
-                                .child(
-                                    div()
-                                        .flex_none()
-                                        .text_color(t.blue)
-                                        .child(format!("@{}", author["handle"].as_str().unwrap_or("?"))),
-                                )
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .truncate()
-                                        .text_color(t.fg_dim)
-                                        .child(author["displayName"].as_str().unwrap_or("").to_owned()),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .text_color(t.fg)
-                                .max_h(t.row * 4.)
-                                .overflow_hidden()
-                                .child(p["record"]["text"].as_str().unwrap_or("").replace('\n', " ")),
-                        )
-                        .child(post_counts(p, t).text_color(t.fg_faint));
-                }
-                (Ref::Actor(_), Some(Fetch::Done(Ok(p)))) => {
-                    body = body
-                        .child(profile_line(p, t))
-                        .child(div().text_color(t.fg_faint).truncate().child(profile_stats(p)));
-                }
-                (_, Some(Fetch::Done(Err(err)))) => {
-                    body = body
-                        .child(div().text_color(t.fg_dim).truncate().child(inspect_uri.clone()))
-                        .child(div().text_color(t.orange).truncate().child(err.clone()));
-                }
-                (Ref::Record(u), _) => body = body.child(div().text_color(t.fg_dim).truncate().child(u.clone())),
-                _ => body = body.child(div().text_color(t.fg_faint).child("…")),
-            }
-            let target = crate::atp::parse_target(&inspect_uri);
+        // What it points at, as cards (posts with their media and quotes).
+        for (name, r) in event_refs(e) {
             out = out.child(
-                div()
-                    .id(("ctx-ref", i))
-                    .flex()
-                    .gap(t.ch)
-                    .cursor_pointer()
-                    .hover({
-                        let h = t.bg_hover;
-                        move |s| s.bg(h)
-                    })
-                    .tooltip(tip(name, None, Some("click to inspect")))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _, _, cx| {
-                            if let Some(t) = target.clone() {
-                                this.inspect(t, cx);
-                            }
-                        }),
-                    )
-                    .child(label(name, t))
-                    .children(ref_avatar)
-                    .child(body),
+                div().flex().gap(t.ch).min_w_0().child(label(name, t)).child(self.ref_card(&r, 0, t, cx).flex_1()),
             );
         }
         out
@@ -319,7 +241,7 @@ pub(super) fn event_refs(e: &Event) -> Vec<(&'static str, Ref)> {
     out
 }
 
-fn profile_line(p: &Value, t: &Theme) -> Div {
+pub(super) fn profile_line(p: &Value, t: &Theme) -> Div {
     div()
         .flex()
         .gap(t.ch)
@@ -335,7 +257,7 @@ fn profile_line(p: &Value, t: &Theme) -> Div {
         )
 }
 
-fn profile_stats(p: &Value) -> String {
+pub(super) fn profile_stats(p: &Value) -> String {
     let n = |k: &str| fmt_count(p[k].as_u64().unwrap_or(0));
     let mut s =
         format!("{} followers · {} following · {} posts", n("followersCount"), n("followsCount"), n("postsCount"));
