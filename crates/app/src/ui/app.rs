@@ -226,6 +226,8 @@ pub struct Vortex {
     context_gen: u64,
     inspector: Option<inspect::Inspector>,
     show_welcome: bool,
+    /// Animation clock for the welcome logo.
+    started: std::time::Instant,
     palette_open: bool,
     palette_ix: usize,
     palette_input: Entity<TextInput>,
@@ -351,6 +353,7 @@ impl Vortex {
             context_gen: 0,
             inspector: None,
             show_welcome: false,
+            started: std::time::Instant::now(),
             palette_open: false,
             palette_ix: 0,
             palette_input,
@@ -372,7 +375,8 @@ impl Vortex {
 
     fn tick(&mut self, cx: &mut Context<Self>) {
         self.ticks += 1;
-        let mut dirty = false;
+        // The welcome logo turns; redraw at the tick rate while it is shown.
+        let mut dirty = self.show_welcome;
         let (store, log, status) =
             (self.engine.store.version(), self.engine.log.version(), self.engine.status_version());
         if (store, log, status) != (self.seen_store, self.seen_log, self.seen_status) {

@@ -15,9 +15,14 @@ const BAYER: [[u8; 8]; 8] = [
     [63, 31, 55, 23, 61, 29, 53, 21],
 ];
 
+/// Seconds per full turn of the cloud bands.
+const TURN_SECS: f32 = 24.0;
+
 /// Cloud density of a hurricane seen from above at normalised `(x, y)` in
-/// [-1, 1]: two logarithmic spiral bands, a bright eyewall, a clear eye.
-pub(super) fn hurricane(x: f32, y: f32) -> f32 {
+/// [-1, 1] (y down): two logarithmic spiral bands, a bright eyewall, a clear
+/// eye. `phase` (radians) turns the bands counter-clockwise on screen, arms
+/// trailing, as a northern-hemisphere storm does.
+pub(super) fn hurricane(x: f32, y: f32, phase: f32) -> f32 {
     let r = (x * x + y * y).sqrt();
     if r > 1.0 {
         return 0.0;
@@ -27,8 +32,7 @@ pub(super) fn hurricane(x: f32, y: f32) -> f32 {
     if r < eye {
         return 0.0;
     }
-    // Bands wind inward counter-clockwise (northern hemisphere).
-    let arms = 0.5 + 0.5 * (2.0 * theta + 5.5 * (r + 0.02).ln()).cos();
+    let arms = 0.5 + 0.5 * (2.0 * (theta + phase) - 5.5 * (r + 0.02).ln()).cos();
     let falloff = (1.0 - r).powf(0.7);
     let wall = (-((r - 0.16) / 0.05).powi(2)).exp();
     (arms.powf(1.6) * falloff * 1.15 + wall * 0.95).clamp(0.0, 1.0)
@@ -36,13 +40,13 @@ pub(super) fn hurricane(x: f32, y: f32) -> f32 {
 
 /// Which cells of an `n`×`n` grid are lit, and whether each is a dense cell
 /// (drawn brighter): ordered dithering of [`hurricane`].
-pub(super) fn logo_cells(n: usize) -> Vec<(usize, usize, bool)> {
+pub(super) fn logo_cells(n: usize, phase: f32) -> Vec<(usize, usize, bool)> {
     let mut out = Vec::new();
     for cy in 0..n {
         for cx in 0..n {
             let x = (cx as f32 + 0.5) / n as f32 * 2.0 - 1.0;
             let y = (cy as f32 + 0.5) / n as f32 * 2.0 - 1.0;
-            let d = hurricane(x, y);
+            let d = hurricane(x, y, phase);
             let threshold = (BAYER[cy % 8][cx % 8] as f32 + 0.5) / 64.0;
             if d > threshold {
                 out.push((cx, cy, d > 0.62));
@@ -55,7 +59,8 @@ pub(super) fn logo_cells(n: usize) -> Vec<(usize, usize, bool)> {
 impl Vortex {
     pub(super) fn render_welcome(&self, t: &Theme, cx: &mut Context<Self>) -> Div {
         const N: usize = 56;
-        let cells = logo_cells(N);
+        let phase = self.started.elapsed().as_secs_f32() / TURN_SECS * std::f32::consts::TAU;
+        let cells = logo_cells(N, phase);
         let (dim, bright) = (t.fg_dim, t.accent);
         let cell = px(2.);
         let logo = canvas(
@@ -227,7 +232,7 @@ mod tests {
 
     #[test]
     fn logo_has_an_eye_and_bands() {
-        let cells = logo_cells(56);
+        let cells = logo_cells(56, 0.0);
         let lit = |x: usize, y: usize| cells.iter().any(|&(cx, cy, _)| cx == x && cy == y);
         // The eye is clear, the corners are empty, and a fair share is lit.
         assert!(!lit(28, 28) && !lit(27, 27));
@@ -235,5 +240,9 @@ mod tests {
         let share = cells.len() as f32 / (56.0 * 56.0);
         assert!((0.15..0.6).contains(&share), "{share}");
         assert!(cells.iter().any(|c| c.2), "some dense cells");
+        // It turns: a quarter turn later the pattern differs but the eye stays.
+        let later = logo_cells(56, std::f32::consts::FRAC_PI_2);
+        assert_ne!(cells, later);
+        assert!(!later.iter().any(|&(x, y, _)| (x, y) == (28, 28)));
     }
 }
