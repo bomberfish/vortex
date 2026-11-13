@@ -72,7 +72,8 @@ pub struct FrameDecoder {
     zstd_v1: Option<DictDecompressor>,
     zstd_v2: Option<DictDecompressor>,
     inflate: Vec<u8>,
-    transcode: String,
+    /// Firehose events are assembled as bytes and validated once, whole.
+    transcode: Vec<u8>,
 }
 
 impl FrameDecoder {
@@ -84,7 +85,7 @@ impl FrameDecoder {
             zstd_v1: None,
             zstd_v2: None,
             inflate: Vec::with_capacity(16 * 1024),
-            transcode: String::with_capacity(16 * 1024),
+            transcode: Vec::with_capacity(16 * 1024),
         }
     }
 
