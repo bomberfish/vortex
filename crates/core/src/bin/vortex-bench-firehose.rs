@@ -192,12 +192,13 @@ fn bench(path: &str, runs: usize, skip: usize, limit: usize, only_total: bool) {
 
     // End to end, exactly as the pipeline calls it.
     let mut b = EventBuilder::new();
+    let mut scratch = Vec::with_capacity(16 * 1024);
     let mut json = String::with_capacity(16 * 1024);
     let (d_total, (decoded, errors)) = best_of(runs, || {
         let mut out: Vec<Decoded> = Vec::with_capacity(n_frames * 2);
         let mut errors = 0usize;
         for f in &frames {
-            if decode_firehose_frame(f, &mut b, &mut json, &mut out).is_err() {
+            if decode_firehose_frame(f, &mut b, &mut scratch, &mut out).is_err() {
                 errors += 1;
             }
         }

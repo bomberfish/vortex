@@ -143,6 +143,34 @@ pub fn base32_lower(data: &[u8], out: &mut String) {
     }
 }
 
+/// [`base32_lower`] into a byte buffer, five input bytes (eight characters)
+/// at a time. The output is ASCII.
+pub fn base32_lower_bytes(data: &[u8], out: &mut Vec<u8>) {
+    out.reserve(data.len().div_ceil(5) * 8);
+    let mut chunks = data.chunks_exact(5);
+    for c in &mut chunks {
+        let acc = u64::from_be_bytes([0, 0, 0, c[0], c[1], c[2], c[3], c[4]]);
+        let mut o = [0u8; 8];
+        for (i, o) in o.iter_mut().enumerate() {
+            *o = ALPHABET[((acc >> (35 - 5 * i)) & 31) as usize];
+        }
+        out.extend_from_slice(&o);
+    }
+    let mut acc = 0u32;
+    let mut bits = 0;
+    for &b in chunks.remainder() {
+        acc = (acc << 8) | b as u32;
+        bits += 8;
+        while bits >= 5 {
+            bits -= 5;
+            out.push(ALPHABET[((acc >> bits) & 31) as usize]);
+        }
+    }
+    if bits > 0 {
+        out.push(ALPHABET[((acc << (5 - bits)) & 31) as usize]);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,6 +217,19 @@ mod tests {
         s.clear();
         base32_lower(b"f", &mut s);
         assert_eq!(s, "my");
+    }
+
+    #[test]
+    fn base32_bytes_matches_string_encoder() {
+        let mut rng = fastrand::Rng::with_seed(32);
+        for len in 0..80 {
+            let data: Vec<u8> = (0..len).map(|_| rng.u8(..)).collect();
+            let mut want = String::new();
+            base32_lower(&data, &mut want);
+            let mut got = b"x".to_vec();
+            base32_lower_bytes(&data, &mut got);
+            assert_eq!(&got[1..], want.as_bytes(), "len {len}");
+        }
     }
 
     #[test]
