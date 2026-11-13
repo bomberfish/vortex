@@ -88,8 +88,8 @@ back. A file with a syntax error is reported and never overwritten.
 
 ```toml
 [ui]
-theme = "gruvbox-dark"     # gruvbox-light catppuccin-mocha tokyo-night nord
-                           # dracula solarized-dark one-dark kanagawa
+theme = "kanagawa"         # gruvbox-dark gruvbox-light catppuccin-mocha tokyo-night
+                           # nord dracula solarized-dark one-dark bloomberg
 font = "Berkeley Mono"     # any installed family
 font_size = 12.0
 line_height = 1.4

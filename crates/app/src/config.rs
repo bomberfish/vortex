@@ -266,7 +266,7 @@ mod tests {
         assert!(text.starts_with("# vortex configuration"));
         assert_eq!(Config::parse(&text).unwrap(), c);
         assert_eq!(c.ui.font, BUNDLED_FONT);
-        assert_eq!(c.ui.theme, "gruvbox-dark");
+        assert_eq!(c.ui.theme, "kanagawa");
     }
 
     #[test]

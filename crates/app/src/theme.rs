@@ -102,6 +102,13 @@ macro_rules! palette {
 /// Built-in schemes. The first is the default.
 pub const BUILTIN: &[(&str, Palette)] = &[
     (
+        "kanagawa",
+        palette!(bg: 0x1f1f28, bg_alt: 0x16161d, bg_hover: 0x2a2a37, bg_sel: 0x2d4f67, border: 0x363646,
+                 fg: 0xdcd7ba, fg_dim: 0xc8c093, fg_faint: 0x727169, accent: 0x7e9cd8,
+                 red: 0xe46876, green: 0x98bb6c, yellow: 0xe6c384, blue: 0x7e9cd8, purple: 0x957fb8,
+                 aqua: 0x7aa89f, orange: 0xffa066),
+    ),
+    (
         "gruvbox-dark",
         palette!(bg: 0x1d2021, bg_alt: 0x282828, bg_hover: 0x32302f, bg_sel: 0x45403d, border: 0x3c3836,
                  fg: 0xebdbb2, fg_dim: 0xa89984, fg_faint: 0x7c6f64, accent: 0xfabd2f,
@@ -158,11 +165,12 @@ pub const BUILTIN: &[(&str, Palette)] = &[
                  aqua: 0x56b6c2, orange: 0xd19a66),
     ),
     (
-        "kanagawa",
-        palette!(bg: 0x1f1f28, bg_alt: 0x16161d, bg_hover: 0x2a2a37, bg_sel: 0x2d4f67, border: 0x363646,
-                 fg: 0xdcd7ba, fg_dim: 0xc8c093, fg_faint: 0x727169, accent: 0x7e9cd8,
-                 red: 0xe46876, green: 0x98bb6c, yellow: 0xe6c384, blue: 0x7e9cd8, purple: 0x957fb8,
-                 aqua: 0x7aa89f, orange: 0xffa066),
+        // Inspired by the Bloomberg Terminal: amber on black, blue selection.
+        "bloomberg",
+        palette!(bg: 0x000000, bg_alt: 0x0d0d0d, bg_hover: 0x1c1c1c, bg_sel: 0x0b3a7a, border: 0x2b2b2b,
+                 fg: 0xffa028, fg_dim: 0xc27a1e, fg_faint: 0x7a7a7a, accent: 0xffd400,
+                 red: 0xff433d, green: 0x3ddc84, yellow: 0xffd400, blue: 0x4d9bff, purple: 0xc77dff,
+                 aqua: 0x4af6c3, orange: 0xfb8b1e),
     ),
 ];
 
