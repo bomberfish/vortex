@@ -18,6 +18,7 @@ use super::rows::{
     clock, fmt_bytes, fmt_count, fmt_duration_us, fmt_rate, json_lines, pdsls_url, row_data, short_collection, web_url,
     JsonLine, RowData,
 };
+use super::text::{live_ranges, live_text};
 use super::tip::{tip, tip_legend};
 use crate::config::{ConfigFile, SavedFilter, BUNDLED_FONT};
 use crate::theme::{resolve_palette, theme_names, Theme};
@@ -237,6 +238,8 @@ pub struct Vortex {
     palette_next_frame: Option<String>,
     /// Debug: show every icon at several sizes.
     icon_sheet: bool,
+    /// Debug: show tooltips laid out as GPUI does (min-content), no hover.
+    tip_sheet: bool,
     fps: FpsMeter,
     client: Arc<crate::atp::Client>,
     lookups: std::collections::HashMap<String, lookup::Fetch>,
@@ -366,6 +369,7 @@ impl Vortex {
             focus_filter_next_frame: false,
             palette_next_frame: None,
             icon_sheet: false,
+            tip_sheet: false,
             fps: FpsMeter::default(),
             client: Arc::new(crate::atp::Client::new()),
             lookups: Default::default(),
@@ -449,6 +453,7 @@ impl Vortex {
             Ok("settings") => self.show_settings = true,
             Ok("badfilter") => self.set_query("type:post lnag:en (has:media", cx),
             Ok("icons") => self.icon_sheet = true,
+            Ok("tips") => self.tip_sheet = true,
             Ok(v) if v.starts_with("palette:") => {
                 self.show_welcome = false;
                 self.palette_next_frame = Some(v["palette:".len()..].to_owned());
@@ -757,7 +762,26 @@ impl Vortex {
     // ---- small view helpers ------------------------------------------------
 
     fn chip(&self, label: impl Into<SharedString>, active: bool, t: &Theme) -> Div {
-        self.chip_base(active, t).child(label.into())
+        let label: SharedString = label.into();
+        if live_ranges(&label).is_empty() {
+            return self.chip_base(active, t).child(label);
+        }
+        // "live" stays red even when selected: a red tint marks the selection
+        // instead of the usual accent fill, which red text would not survive.
+        let hover = t.bg_hover;
+        let mut tint = t.red;
+        tint.a = 0.2;
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .h(t.row)
+            .px(t.pad)
+            .rounded(t.radius)
+            .cursor_pointer()
+            .when(active, |d| d.bg(tint))
+            .when(!active, |d| d.hover(move |s| s.bg(hover)))
+            .child(live_text(label, t))
     }
 
     /// A chip with an icon and an optional label.
@@ -1815,7 +1839,7 @@ impl Vortex {
             .bg(t.bg_alt)
             .border_t_1()
             .border_color(t.border)
-            .child(div().flex_1().min_w_0().truncate().text_color(color).child(text))
+            .child(div().flex_1().min_w_0().truncate().text_color(color).child(live_text(text, t)))
             .child(div().flex_none().text_color(t.fg_faint).child(right))
             .children(fps)
     }
@@ -2336,6 +2360,36 @@ impl Render for Vortex {
         }
         if self.palette_open {
             root = root.child(self.render_palette(&t, cx));
+        }
+        #[cfg(debug_assertions)]
+        if self.tip_sheet {
+            use super::tip::{sample, sample_legend};
+            let tips = [
+                cx.new(|_| sample("tail", Some("space"), Some("keep the newest event in view"))),
+                cx.new(|_| sample("lag", None, Some("now minus the newest event's server time"))),
+                cx.new(|_| {
+                    sample(
+                        "server filter",
+                        None,
+                        Some("send kinds, collections and DIDs from the query to the server. Saves bandwidth; off keeps the full stream buffered so wider queries see history"),
+                    )
+                }),
+                cx.new(|_| sample("live", None, Some("start from now"))),
+                cx.new(|_| sample("disconnect", Some("⌘↵"), Some("live from jetstream.us-east.bsky.network"))),
+                cx.new(|_| {
+                    sample_legend(
+                        "marks",
+                        &[(Icon::Reply, "reply"), (Icon::Quote, "quote"), (Icon::Image, "images"), (Icon::Video, "video"), (Icon::Link, "link")],
+                    )
+                }),
+            ];
+            // A zero-width parent forces min-content sizing, like GPUI's
+            // tooltip layout.
+            let mut sheet = div().absolute().top(px(60.)).left(px(460.)).flex().flex_col().gap(px(10.));
+            for v in tips {
+                sheet = sheet.child(div().w(px(0.)).child(v));
+            }
+            root = root.child(sheet);
         }
         if self.icon_sheet {
             use super::icons::{icon, Icon};

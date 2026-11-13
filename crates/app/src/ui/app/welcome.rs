@@ -142,7 +142,7 @@ impl Vortex {
                                     .child("vortex"),
                             )
                             .child(div().text_color(t.fg_dim).child("AT Protocol stream command center"))
-                            .child(div().text_color(t.fg_faint).truncate().child(status)),
+                            .child(div().text_color(t.fg_faint).truncate().child(live_text(status, t))),
                     ),
                 )
                 .child(section("get started", t))

@@ -5,4 +5,5 @@ pub mod icons;
 pub mod input;
 pub mod menus;
 pub mod rows;
+pub mod text;
 pub mod tip;

@@ -225,7 +225,7 @@ impl Vortex {
                             .min_w_0()
                             .truncate()
                             .text_color(if is_inspect { t.blue } else { t.fg })
-                            .child(e.label.clone()),
+                            .child(live_text(e.label.clone(), t)),
                     )
                     .child(div().flex_none().text_color(t.yellow).child(e.keys))
                     .on_mouse_down(
