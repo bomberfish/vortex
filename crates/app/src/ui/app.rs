@@ -58,6 +58,7 @@ actions!(
         FontBigger,
         FontSmaller,
         NextTheme,
+        PrevTheme,
         CopyJson,
         CopyUri,
         OpenInBrowser,
@@ -102,6 +103,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-=", FontBigger, root),
         KeyBinding::new("cmd--", FontSmaller, root),
         KeyBinding::new("cmd-t", NextTheme, root),
+        KeyBinding::new("cmd-shift-t", PrevTheme, root),
         KeyBinding::new("cmd-enter", ToggleConnect, root),
         KeyBinding::new("cmd-q", Quit, None),
         // Only while the list has focus, so typing in the filter is unaffected.
@@ -1350,7 +1352,7 @@ impl Vortex {
                 ("⌘[ ⌘] ⌘↑", "inspector back / forward / up"),
                 ("⌘K", "clear"),
                 ("⌘B ⌘I", "sidebar / detail"),
-                ("⌘T ⌘= ⌘-", "theme / font size"),
+                ("⌘T ⌘⇧T ⌘= ⌘-", "theme next / previous, font size"),
                 ("⌘,", "settings"),
                 ("⌘P", "command palette · inspect anything"),
             ];
@@ -1903,9 +1905,22 @@ impl Vortex {
     }
 
     fn next_theme(&mut self, _: &NextTheme, _: &mut Window, cx: &mut Context<Self>) {
+        self.step_theme(1, cx);
+    }
+
+    fn prev_theme(&mut self, _: &PrevTheme, _: &mut Window, cx: &mut Context<Self>) {
+        self.step_theme(-1, cx);
+    }
+
+    /// Move `delta` places through the theme list, wrapping around.
+    fn step_theme(&mut self, delta: isize, cx: &mut Context<Self>) {
         let names = theme_names(&self.cfg.config);
-        let i = names.iter().position(|n| *n == self.cfg.config.ui.theme).map(|i| i + 1).unwrap_or(0);
-        self.cfg.config.ui.theme = names[i % names.len()].clone();
+        let n = names.len() as isize;
+        let i = match names.iter().position(|t| *t == self.cfg.config.ui.theme) {
+            Some(i) => (i as isize + delta).rem_euclid(n),
+            None => 0,
+        };
+        self.cfg.config.ui.theme = names[i as usize].clone();
         self.engine.log.info(format!("theme {}", self.cfg.config.ui.theme));
         self.config_changed(cx);
     }
@@ -2235,6 +2250,7 @@ impl Render for Vortex {
             .on_action(cx.listener(Self::font_bigger))
             .on_action(cx.listener(Self::font_smaller))
             .on_action(cx.listener(Self::next_theme))
+            .on_action(cx.listener(Self::prev_theme))
             .on_action(cx.listener(Self::copy_json))
             .on_action(cx.listener(Self::copy_uri))
             .on_action(cx.listener(Self::open_in_browser))

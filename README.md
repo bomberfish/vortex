@@ -107,7 +107,7 @@ Lookups are read-only and go to the public AppView (`public.api.bsky.app`),
 | `r` | scroll the list back to the selected event (`row` in the detail pane) |
 | `⌘K` | clear buffer |
 | `⌘B` `⌘I` | sidebar / detail pane |
-| `⌘T` `⌘=` `⌘-` | next theme / font size |
+| `⌘T` `⌘⇧T` `⌘=` `⌘-` | next / previous theme, font size |
 | `⌘,` `?` | settings / filter help (toggle) |
 | `⌘↵` | connect / disconnect |
 

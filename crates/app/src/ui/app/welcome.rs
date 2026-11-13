@@ -190,15 +190,18 @@ impl Vortex {
                 .child(item("w-help", "?", "filter syntax & keys".into(), "?", Cmd::Help, t, cx))
                 .child(section("configure", t))
                 .child(item("w-settings", "⚙", "settings".into(), "⌘,", Cmd::Settings, t, cx))
-                .child(item(
-                    "w-theme",
-                    "◐",
-                    format!("theme: {}", self.cfg.config.ui.theme),
-                    "⌘T",
-                    Cmd::NextTheme,
-                    t,
-                    cx,
-                ))
+                .child(
+                    item("w-theme", "◐", format!("theme: {}", self.cfg.config.ui.theme), "⌘T", Cmd::NextTheme, t, cx)
+                        .tooltip(tip(
+                            "theme",
+                            Some("⌘T ⌘⇧T"),
+                            Some("click for the next theme, right-click for the previous one"),
+                        ))
+                        .on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(|this, _, window, cx| this.run_cmd(Cmd::PrevTheme, window, cx)),
+                        ),
+                )
                 .child(item("w-config", "✎", "open config.toml".into(), "", Cmd::OpenConfig, t, cx))
                 .child(
                     div()

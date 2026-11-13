@@ -56,6 +56,7 @@ pub fn install(cx: &mut App) {
             MenuItem::action("Toggle Detail Pane", ToggleDetail),
             MenuItem::separator(),
             MenuItem::action("Next Theme", NextTheme),
+            MenuItem::action("Previous Theme", PrevTheme),
             MenuItem::action("Bigger Text", FontBigger),
             MenuItem::action("Smaller Text", FontSmaller),
             MenuItem::separator(),

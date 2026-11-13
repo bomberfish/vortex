@@ -19,6 +19,7 @@ pub(super) enum Cmd {
     Settings,
     Help,
     NextTheme,
+    PrevTheme,
     Theme(String),
     OpenConfig,
     Welcome,
@@ -37,6 +38,7 @@ impl Cmd {
             self,
             Cmd::Settings
                 | Cmd::NextTheme
+                | Cmd::PrevTheme
                 | Cmd::Theme(_)
                 | Cmd::OpenConfig
                 | Cmd::Welcome
@@ -109,6 +111,7 @@ impl Vortex {
             Entry { label: "settings".into(), keys: "⌘,", cmd: Cmd::Settings },
             Entry { label: "filter syntax & keys".into(), keys: "?", cmd: Cmd::Help },
             Entry { label: "next theme".into(), keys: "⌘T", cmd: Cmd::NextTheme },
+            Entry { label: "previous theme".into(), keys: "⌘⇧T", cmd: Cmd::PrevTheme },
             Entry { label: "open config.toml".into(), keys: "", cmd: Cmd::OpenConfig },
             Entry { label: "welcome".into(), keys: "", cmd: Cmd::Welcome },
             Entry { label: "quit".into(), keys: "⌘Q", cmd: Cmd::Quit },
@@ -159,6 +162,7 @@ impl Vortex {
             Cmd::Settings => self.toggle_settings(&ToggleSettings, window, cx),
             Cmd::Help => self.toggle_help(&ToggleHelp, window, cx),
             Cmd::NextTheme => self.next_theme(&NextTheme, window, cx),
+            Cmd::PrevTheme => self.prev_theme(&PrevTheme, window, cx),
             Cmd::Theme(name) => {
                 self.cfg.config.ui.theme = name;
                 self.config_changed(cx);
@@ -285,7 +289,9 @@ mod tests {
 
     #[test]
     fn overlays_and_preferences_keep_the_welcome_screen() {
-        for cmd in [Cmd::Settings, Cmd::NextTheme, Cmd::Theme("nord".into()), Cmd::OpenConfig, Cmd::FpsMeter] {
+        for cmd in
+            [Cmd::Settings, Cmd::NextTheme, Cmd::PrevTheme, Cmd::Theme("nord".into()), Cmd::OpenConfig, Cmd::FpsMeter]
+        {
             assert!(!cmd.leaves_welcome());
         }
         for cmd in
