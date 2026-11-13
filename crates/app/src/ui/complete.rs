@@ -172,7 +172,12 @@ pub const FIELDS: &[FieldDoc] = &[
     FieldDoc { insert: "links>=", doc: "number of links", values: &[], example: "1" },
     FieldDoc { insert: "langs>", doc: "number of declared languages", values: &[], example: "1" },
     FieldDoc { insert: "bytes>", doc: "frame size in bytes", values: &["10000"], example: "10000" },
-    FieldDoc { insert: "time>", doc: "event time: 2026-01-01T00:00Z", values: &[], example: "2026-01-01T00:00Z" },
+    FieldDoc {
+        insert: "time>",
+        doc: "event time: 2026-01-01T00:00Z (no zone: display zone)",
+        values: &[],
+        example: "2026-01-01T00:00Z",
+    },
     FieldDoc { insert: "created>", doc: "record createdAt", values: &[], example: "2026-01-01T00:00Z" },
     FieldDoc {
         insert: "skew>",

@@ -6,7 +6,7 @@ use super::parse::{err, CmpOp, Expr, FilterError, Term, Value};
 use crate::did::Did;
 use crate::event::{Field, Flags, Kind, Op};
 use crate::nsid::Nsid;
-use crate::time::{parse_duration_us, parse_rfc3339_us};
+use crate::time::{has_zone, local_time, local_wall_to_utc, parse_duration_us, parse_rfc3339_us};
 use memchr::memmem;
 
 /// Field reference shown in the UI's help.
@@ -22,7 +22,7 @@ pub const FIELD_HELP: &[(&str, &str)] = &[
     ("reply-to: root: quote: subject:", "referenced AT-URI contains (a DID works)"),
     ("handle: status: active:", "identity / account event fields"),
     ("len images tags mentions links langs bytes", "counts: len>200 images:2 tags:1..3"),
-    ("time created skew", "time>2026-01-01T00:00Z  skew>1h"),
+    ("time created skew", "time>2026-01-01T00:00Z  skew>1h  (no zone: display zone)"),
     ("record.path json.path", "any JSON field: record.embed.$type:video  record.a[*].b>3"),
     ("exists: raw: uri: rkey: label: word:", "path exists / raw frame contains / at-uri / …"),
     ("sample:", "keep a fraction: sample:10%"),
@@ -392,8 +392,18 @@ fn parse_int(s: &str) -> Option<i64> {
     s.replace('_', "").parse().ok()
 }
 
+/// A time literal; one without a zone is read in the display zone, so a time
+/// copied off the screen means what it says.
 fn parse_time(s: &str) -> Option<i64> {
-    parse_rfc3339_us(s).or_else(|| parse_int(s))
+    parse_time_in(s, local_time())
+}
+
+fn parse_time_in(s: &str, local: bool) -> Option<i64> {
+    match parse_rfc3339_us(s) {
+        Some(us) if local && !has_zone(s) => Some(local_wall_to_utc(us)),
+        Some(us) => Some(us),
+        None => parse_int(s),
+    }
 }
 
 /// Numeric comparison(s) for one value: `5`, `>5`, `<=5`, `1..5`, `1..`, `..5`.
@@ -691,5 +701,22 @@ fn compile_term(t: &Term) -> Result<Node, FilterError> {
             })
         }
         _ => Err(unknown_field(t)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zoneless_times_follow_the_display_zone() {
+        let utc = parse_time_in("2026-08-13T06:47Z", true).unwrap();
+        assert_eq!(parse_time_in("2026-08-13T06:47", false), Some(utc));
+        assert_eq!(parse_time_in("2026-08-13T06:47+00:00", true), Some(utc));
+        let wall = parse_time_in("2026-08-13T06:47", true).unwrap();
+        assert_eq!(utc - wall, crate::time::utc_offset_s(wall) * 1_000_000);
+        // Bare dates are local midnight too.
+        let day = parse_time_in("2026-08-13", true).unwrap();
+        assert_eq!(parse_time_in("2026-08-13T00:00", true), Some(day));
     }
 }

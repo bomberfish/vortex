@@ -31,6 +31,8 @@ pub struct UiConfig {
     pub radius: f32,
     /// Square window corners (macOS draws them rounded by default).
     pub square_corners: bool,
+    /// Show times in the system time zone instead of UTC.
+    pub local_time: bool,
     /// Show frames/s and frame build time in the status bar.
     pub fps_meter: bool,
     /// Show the welcome screen on launch.
@@ -51,6 +53,7 @@ impl Default for UiConfig {
             padding: 4.0,
             radius: 2.0,
             square_corners: false,
+            local_time: false,
             fps_meter: true,
             welcome: true,
             sidebar: true,

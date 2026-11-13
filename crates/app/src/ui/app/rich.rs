@@ -79,8 +79,7 @@ pub(super) fn tid(rkey: &str) -> Option<(i64, u16)> {
 
 /// `2026-11-13 07:51:47 · 3.2m ago`
 pub(super) fn when(us: i64) -> String {
-    let s = format_rfc3339_us(us);
-    format!("{} {} · {} ago", &s[..10], &s[11..19], fmt_duration_us(now_us() - us).trim_start_matches('-'))
+    format!("{} · {} ago", date_time(us), fmt_duration_us(now_us() - us).trim_start_matches('-'))
 }
 
 /// What a record refers to, labelled for display.
@@ -458,7 +457,7 @@ impl Vortex {
         }
         let rkey_text = match tid(rkey) {
             Some((us, clock)) => {
-                format!("{rkey} · tid {} · clock {clock}", format_rfc3339_us(us)[..19].replace('T', " "))
+                format!("{rkey} · tid {} · clock {clock}", date_time(us))
             }
             None => rkey.to_owned(),
         };
@@ -587,7 +586,7 @@ mod tests {
     fn tids_decode() {
         // 3jzfcijpj2z2a is the example TID in the atproto spec.
         let (us, _) = tid("3jzfcijpj2z2a").unwrap();
-        assert!(format_rfc3339_us(us).starts_with("2023-"), "{}", format_rfc3339_us(us));
+        assert!(date_time(us).starts_with("2023-"), "{}", date_time(us));
         assert_eq!(tid("self"), None);
         assert_eq!(tid("zzzzzzzzzzzzz"), None);
     }

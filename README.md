@@ -194,7 +194,7 @@ did:@~/watchlist.txt            sample:5%
 | `reply-to:` `root:` `quote:` `subject:` | referenced AT-URI contains (a DID works) |
 | `handle:` `status:` `active:` | identity / account event fields |
 | `len images tags mentions links langs bytes` | counts: `len>200` `images:2` `tags:1..3` |
-| `time created skew` | `time>2026-01-01T00:00Z` `skew>1h` (createdAt vs. event time) |
+| `time created skew` | `time>2026-01-01T00:00Z` `skew>1h` (createdAt vs. event time); a time without a zone is UTC, or local with `local_time` on |
 | `record.path` `json.path` | any JSON field, with `[n]`, `[*]`, `*` |
 | `exists:` `raw:` `uri:` `rkey:` `label:` `word:` | path exists / raw frame contains / … |
 | `sample:` | keep a deterministic fraction: `sample:10%` |
@@ -250,6 +250,7 @@ line_height = 1.4
 padding = 4.0
 radius = 2.0
 square_corners = false     # macOS: square window corners
+local_time = false         # show times, and read zone-less filter times, in the system zone
 fps_meter = true           # frames/s and CPU time per frame in the status bar
 welcome = true             # welcome screen on launch
 sidebar = true

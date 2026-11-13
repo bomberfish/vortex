@@ -17,8 +17,8 @@ use super::fps::FpsMeter;
 use super::icons::{icon, Icon};
 use super::input::{InputEvent, TextInput};
 use super::rows::{
-    clock, fmt_bytes, fmt_count, fmt_duration_us, fmt_rate, json_lines, pdsls_url, row_data, short_collection, web_url,
-    JsonLine, RowData,
+    clock, date_time, fmt_bytes, fmt_count, fmt_duration_us, fmt_rate, json_lines, pdsls_url, row_data,
+    short_collection, stamp, web_url, JsonLine, RowData,
 };
 use super::text::{live_ranges, live_text};
 use super::tip::{tip, tip_legend};
@@ -39,7 +39,7 @@ use vortex_core::net::{ConnState, ConnStatus, SourceKind, StartFrom};
 use vortex_core::nsid::Nsid;
 use vortex_core::stats::{RateSampler, Rates, Snapshot};
 use vortex_core::store::{FacetCount, RefilterStats};
-use vortex_core::time::{format_rfc3339_us, now_us};
+use vortex_core::time::{local_time, now_us, set_local_time};
 
 actions!(
     vortex,
@@ -651,6 +651,7 @@ impl Vortex {
             self.engine.log.error(format!("font '{}' not found, using {BUNDLED_FONT}", c.ui.font));
             BUNDLED_FONT.into()
         };
+        set_local_time(c.ui.local_time);
         cx.set_global(Theme::build(c, palette, font));
         self.measured_font = None;
         self.engine.store.set_config(c.buffer.to_store());
@@ -1458,7 +1459,7 @@ impl Vortex {
             .gap(t.ch)
             .bg(t.bg_alt)
             .text_color(t.fg_faint)
-            .child(div().flex_none().w(t.ch * 12.5).child("utc"))
+            .child(div().flex_none().w(t.ch * 12.5).child(if local_time() { "local" } else { "utc" }))
             .child(div().id("h-op").flex_none().w(t.ch).child("±").tooltip(tip(
                 "operation",
                 None,
@@ -1591,7 +1592,7 @@ impl Vortex {
         head = head
             .child(div().text_color(t.hue(e.collection_str())).truncate().child(title))
             .child(div().text_color(t.fg_dim).truncate().child(uri.clone().unwrap_or_else(|| e.did.to_string())));
-        let mut when = format!("{}  seq {}", format_rfc3339_us(e.time_us), e.seq);
+        let mut when = format!("{}  seq {}", stamp(e.time_us), e.seq);
         if e.created_us != 0 {
             when.push_str(&format!("  created {}", fmt_duration_us(e.created_us - e.time_us)));
         }
@@ -1940,6 +1941,27 @@ impl Vortex {
                         })),
                 )
             })
+            .child(
+                div()
+                    .id("set-times")
+                    .flex()
+                    .items_center()
+                    .h(t.row)
+                    .gap(t.ch)
+                    .tooltip(tip("times", None, Some("show event times in UTC or the system time zone")))
+                    .child(div().w(t.ch * 18.).whitespace_nowrap().flex_none().text_color(t.fg_dim).child("times"))
+                    .children([("utc", false), ("local", true)].map(|(label, on)| {
+                        self.chip(label, ui.local_time == on, t).on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, _, cx| {
+                                this.cfg.config.ui.local_time = on;
+                                this.config_changed(cx);
+                                // Zone-less times in the filter change meaning.
+                                this.filter_changed(true, cx);
+                            }),
+                        )
+                    })),
+            )
             .child(
                 div()
                     .id("set-media")

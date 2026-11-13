@@ -5,7 +5,7 @@ use crate::theme::Theme;
 use gpui::{HighlightStyle, Hsla, SharedString};
 use std::ops::Range;
 use vortex_core::event::{Event, Field, Flags, Kind, Op};
-use vortex_core::time::civil_from_us;
+use vortex_core::time::{civil_from_us, local_time, utc_offset_s};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
@@ -49,8 +49,52 @@ pub struct RowData {
     pub marks: Vec<Icon>,
 }
 
+/// Seconds east of UTC in effect at `us`, or 0 when showing UTC.
+fn offset_s(us: i64, local: bool) -> i64 {
+    if local {
+        utc_offset_s(us)
+    } else {
+        0
+    }
+}
+
+/// Broken-down time in the display zone, and its offset from UTC in seconds.
+fn display_civil(us: i64, local: bool) -> (vortex_core::time::Civil, i64) {
+    let off = offset_s(us, local);
+    (civil_from_us(us + off * 1_000_000), off)
+}
+
+/// `2026-08-13T06:47:43.959305Z`, or `…43.959305-04:00` in local time.
+pub fn stamp(us: i64) -> String {
+    stamp_in(us, local_time())
+}
+
+fn stamp_in(us: i64, local: bool) -> String {
+    let (c, off) = display_civil(us, local);
+    let zone = if local {
+        let a = off.abs();
+        format!("{}{:02}:{:02}", if off < 0 { '-' } else { '+' }, a / 3600, a % 3600 / 60)
+    } else {
+        "Z".to_owned()
+    };
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:06}{zone}",
+        c.year, c.month, c.day, c.hour, c.minute, c.second, c.micros
+    )
+}
+
+/// `2026-08-13 06:47:43` in the display zone.
+pub fn date_time(us: i64) -> String {
+    let (c, _) = display_civil(us, local_time());
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", c.year, c.month, c.day, c.hour, c.minute, c.second)
+}
+
 pub fn clock(us: i64) -> String {
-    let c = civil_from_us(us);
+    clock_in(us, local_time())
+}
+
+fn clock_in(us: i64, local: bool) -> String {
+    let (c, _) = display_civil(us, local);
     format!("{:02}:{:02}:{:02}.{:03}", c.hour, c.minute, c.second, c.micros / 1000)
 }
 
@@ -309,6 +353,18 @@ pub fn pdsls_url(e: &Event) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn local_time_shifts_by_system_offset() {
+        let us = 1_786_603_663_959_305; // 2026-08-13T06:47:43.959305Z
+        assert_eq!(stamp_in(us, false), "2026-08-13T06:47:43.959305Z");
+        assert_eq!(clock_in(us, false), "06:47:43.959");
+        let off = utc_offset_s(us);
+        let shifted = civil_from_us(us + off * 1_000_000);
+        assert_eq!(clock_in(us, true), format!("{:02}:{:02}:{:02}.959", shifted.hour, shifted.minute, shifted.second));
+        let local = stamp_in(us, true);
+        assert!(!local.ends_with('Z') && local.contains(".959305"), "{local}");
+    }
+
     use super::*;
     use vortex_core::decode::frame::decode_json_frame;
     use vortex_core::decode::Decoded;

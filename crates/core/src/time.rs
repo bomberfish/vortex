@@ -148,6 +148,64 @@ pub fn format_rfc3339_us(us: i64) -> String {
     )
 }
 
+static LOCAL_TIME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Show times in the system time zone, and read zone-less filter times in it.
+pub fn set_local_time(on: bool) {
+    LOCAL_TIME.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn local_time() -> bool {
+    LOCAL_TIME.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Seconds east of UTC in the system time zone at the instant `us`.
+pub fn utc_offset_s(us: i64) -> i64 {
+    thread_local! {
+        // (hour since epoch, offset): times looked up together mostly share an hour.
+        static LAST: std::cell::Cell<(i64, i64)> = const { std::cell::Cell::new((i64::MIN, 0)) };
+    }
+    let hour = us.div_euclid(3_600_000_000);
+    LAST.with(|last| {
+        let (h, off) = last.get();
+        if h == hour {
+            return off;
+        }
+        let off = system_offset_s(us.div_euclid(1_000_000));
+        last.set((hour, off));
+        off
+    })
+}
+
+#[cfg(unix)]
+fn system_offset_s(secs: i64) -> i64 {
+    let t = secs as libc::time_t;
+    // SAFETY: localtime_r writes only into `tm`, which we own.
+    unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&t, &mut tm).is_null() {
+            return 0;
+        }
+        tm.tm_gmtoff as i64
+    }
+}
+
+#[cfg(not(unix))]
+fn system_offset_s(_secs: i64) -> i64 {
+    0
+}
+
+/// A wall-clock reading in the system time zone (as if it were UTC) → the real instant.
+pub fn local_wall_to_utc(wall_us: i64) -> i64 {
+    let guess = utc_offset_s(wall_us);
+    wall_us - utc_offset_s(wall_us - guess * 1_000_000) * 1_000_000
+}
+
+/// Whether an RFC 3339-ish literal names its zone (`Z`, `+05:30`, `-0400`).
+pub fn has_zone(s: &str) -> bool {
+    s.get(10..).is_some_and(|t| t.ends_with(['Z', 'z']) || t.contains(['+', '-']))
+}
+
 /// Current unix time in microseconds.
 pub fn now_us() -> i64 {
     std::time::SystemTime::now()

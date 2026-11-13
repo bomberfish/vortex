@@ -5942,6 +5942,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "futures-util",
+ "libc",
  "memchr",
  "parking_lot",
  "rayon",
