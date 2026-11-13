@@ -31,6 +31,7 @@ fn main() {
 
         ui::input::bind_keys(cx);
         ui::app::bind_keys(cx);
+        ui::menus::install(cx);
 
         let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
         let options = WindowOptions {

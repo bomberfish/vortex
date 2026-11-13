@@ -86,6 +86,9 @@ no bandwidth; turn it off to keep the full stream buffered for later queries.
   with clickable references, and backlinks. `⌘[` `⌘]` back/forward, `⌘↑` up,
   `esc` back to the stream.
 
+- **Menus** (macOS menu bar): vortex, Edit, View, Stream (source, replay),
+  Go (inspector), Window, Help — shortcuts shown match the key bindings.
+
 Lookups are read-only and go to the public AppView (`public.api.bsky.app`),
 `plc.directory`, the account's own PDS, and constellation
 (`constellation.microcosm.blue`) for backlinks.

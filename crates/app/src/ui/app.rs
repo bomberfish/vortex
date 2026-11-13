@@ -64,6 +64,19 @@ actions!(
         OpenInPdsls,
         InspectSelected,
         OpenPalette,
+        SourceJetstream,
+        SourceJetstreamV1,
+        SourceFirehose,
+        ReplayLive,
+        Replay1m,
+        Replay5m,
+        Replay30m,
+        Replay2h,
+        ShowWelcome,
+        OpenConfig,
+        Minimize,
+        Zoom,
+        ToggleFullscreen,
         InspectBack,
         InspectForward,
         InspectUp,
@@ -1929,6 +1942,67 @@ impl Vortex {
         self.inspect(target, cx);
     }
 
+    fn menu_source_jetstream(&mut self, _: &SourceJetstream, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_cmd(palette::Cmd::Source(SourceKind::JetstreamV2), window, cx)
+    }
+
+    fn menu_source_jetstream_v1(&mut self, _: &SourceJetstreamV1, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_cmd(palette::Cmd::Source(SourceKind::JetstreamV1), window, cx)
+    }
+
+    fn menu_source_firehose(&mut self, _: &SourceFirehose, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_cmd(palette::Cmd::Source(SourceKind::Firehose), window, cx)
+    }
+
+    fn menu_replay_live(&mut self, _: &ReplayLive, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_cmd(palette::Cmd::Replay(0), window, cx)
+    }
+
+    fn menu_replay_1m(&mut self, _: &Replay1m, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_cmd(palette::Cmd::Replay(60), window, cx)
+    }
+
+    fn menu_replay_5m(&mut self, _: &Replay5m, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_cmd(palette::Cmd::Replay(300), window, cx)
+    }
+
+    fn menu_replay_3_0m(&mut self, _: &Replay30m, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_cmd(palette::Cmd::Replay(1800), window, cx)
+    }
+
+    fn menu_replay_2h(&mut self, _: &Replay2h, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_cmd(palette::Cmd::Replay(7200), window, cx)
+    }
+
+    fn menu_show_welcome(&mut self, _: &ShowWelcome, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_cmd(palette::Cmd::Welcome, window, cx)
+    }
+
+    fn menu_open_config(&mut self, _: &OpenConfig, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_cmd(palette::Cmd::OpenConfig, window, cx)
+    }
+
+    fn menu_minimize(&mut self, _: &Minimize, window: &mut Window, cx: &mut Context<Self>) {
+        {
+            let _ = cx;
+            window.minimize_window()
+        }
+    }
+
+    fn menu_zoom(&mut self, _: &Zoom, window: &mut Window, cx: &mut Context<Self>) {
+        {
+            let _ = cx;
+            window.zoom_window()
+        }
+    }
+
+    fn menu_toggle_fullscreen(&mut self, _: &ToggleFullscreen, window: &mut Window, cx: &mut Context<Self>) {
+        {
+            let _ = cx;
+            window.toggle_fullscreen()
+        }
+    }
+
     fn on_open_palette(&mut self, _: &OpenPalette, window: &mut Window, cx: &mut Context<Self>) {
         if self.palette_open {
             self.close_palette(window, cx);
@@ -2167,6 +2241,19 @@ impl Render for Vortex {
             .on_action(cx.listener(Self::inspect_selected))
             .on_action(cx.listener(Self::on_inspect_back))
             .on_action(cx.listener(Self::on_open_palette))
+            .on_action(cx.listener(Self::menu_source_jetstream))
+            .on_action(cx.listener(Self::menu_source_jetstream_v1))
+            .on_action(cx.listener(Self::menu_source_firehose))
+            .on_action(cx.listener(Self::menu_replay_live))
+            .on_action(cx.listener(Self::menu_replay_1m))
+            .on_action(cx.listener(Self::menu_replay_5m))
+            .on_action(cx.listener(Self::menu_replay_3_0m))
+            .on_action(cx.listener(Self::menu_replay_2h))
+            .on_action(cx.listener(Self::menu_show_welcome))
+            .on_action(cx.listener(Self::menu_open_config))
+            .on_action(cx.listener(Self::menu_minimize))
+            .on_action(cx.listener(Self::menu_zoom))
+            .on_action(cx.listener(Self::menu_toggle_fullscreen))
             .on_action(cx.listener(Self::on_inspect_forward))
             .on_action(cx.listener(Self::on_inspect_up))
             .on_action(cx.listener(Self::quit))
