@@ -29,6 +29,8 @@ pub struct UiConfig {
     pub padding: f32,
     /// Corner radius in pixels.
     pub radius: f32,
+    /// Square window corners (macOS draws them rounded by default).
+    pub square_corners: bool,
     pub sidebar: bool,
     pub sidebar_width: f32,
     pub detail: bool,
@@ -44,6 +46,7 @@ impl Default for UiConfig {
             line_height: 1.4,
             padding: 4.0,
             radius: 2.0,
+            square_corners: false,
             sidebar: true,
             sidebar_width: 220.0,
             detail: true,

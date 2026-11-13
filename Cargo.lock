@@ -5515,6 +5515,8 @@ version = "0.1.0"
 dependencies = [
  "gpui-pre",
  "gpui-pre-platform",
+ "objc2 0.6.5",
+ "raw-window-handle",
  "serde",
  "toml 0.9.12+spec-1.1.0",
  "unicode-segmentation",

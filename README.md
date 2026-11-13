@@ -95,6 +95,7 @@ font_size = 12.0
 line_height = 1.4
 padding = 4.0
 radius = 2.0
+square_corners = false     # macOS: square window corners
 
 [colors]                   # override any slot of the active theme
 accent = "#ff8800"

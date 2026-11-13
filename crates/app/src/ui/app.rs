@@ -185,6 +185,8 @@ pub struct Vortex {
     show_settings: bool,
     show_help: bool,
     measured_font: Option<(SharedString, Pixels)>,
+    /// Window corner style last pushed to the platform.
+    applied_square: Option<bool>,
 }
 
 impl Vortex {
@@ -262,6 +264,7 @@ impl Vortex {
             show_settings: false,
             show_help: false,
             measured_font: None,
+            applied_square: None,
         };
         this.apply_config(cx);
         if let Some(e) = this.cfg.error.clone() {
@@ -1210,6 +1213,25 @@ impl Vortex {
             .child(stepper("radius", format!("{:.0}", ui.radius), t, cx, |v, d| {
                 v.cfg.config.ui.radius = (v.cfg.config.ui.radius + d).clamp(0.0, 12.0)
             }))
+            .when(cfg!(target_os = "macos"), |d| {
+                d.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .h(t.row)
+                        .gap(t.ch)
+                        .child(div().w(t.ch * 12.).flex_none().text_color(t.fg_dim).child("corners"))
+                        .children([("round", false), ("square", true)].map(|(label, sq)| {
+                            self.chip(label, ui.square_corners == sq, t).on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _, _, cx| {
+                                    this.cfg.config.ui.square_corners = sq;
+                                    this.config_changed(cx);
+                                }),
+                            )
+                        })),
+                )
+            })
             .child(stepper("buffer", fmt_count(self.cfg.config.buffer.events as u64), t, cx, |v, d| {
                 let e = v.cfg.config.buffer.events;
                 v.cfg.config.buffer.events = if d > 0.0 { (e * 2).min(8_000_000) } else { (e / 2).max(25_000) };
@@ -1484,6 +1506,11 @@ impl Focusable for Vortex {
 
 impl Render for Vortex {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let square = self.cfg.config.ui.square_corners;
+        if self.applied_square != Some(square) {
+            self.applied_square = Some(square);
+            crate::corners::set_square(window, square);
+        }
         // Measure the character cell once per font/size so columns line up.
         let key = {
             let t = Theme::get(cx);

@@ -11,3 +11,7 @@ gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features =
 unicode-segmentation = "1"
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"
+raw-window-handle = "0.6"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
