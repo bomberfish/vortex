@@ -76,6 +76,7 @@ no bandwidth; turn it off to keep the full stream buffered for later queries.
 | `j` `k` `↑` `↓` `g` `G` `pgup` `pgdn` | move selection |
 | `space` | tail on/off |
 | `c` `u` `o` | copy JSON / copy AT-URI / open in browser |
+| `p` | open the record (or repo) on pdsls.dev |
 | `r` | scroll the list back to the selected event (`row` in the detail pane) |
 | `⌘K` | clear buffer |
 | `⌘B` `⌘I` | sidebar / detail pane |

@@ -285,7 +285,15 @@ pub fn web_url(e: &Event) -> Option<String> {
         "app.bsky.actor.profile" | "" => Some(format!("https://bsky.app/profile/{did}")),
         "app.bsky.feed.generator" => Some(format!("https://bsky.app/profile/{did}/feed/{}", e.field(Field::Rkey))),
         "app.bsky.graph.list" => Some(format!("https://bsky.app/profile/{did}/lists/{}", e.field(Field::Rkey))),
-        _ => e.at_uri().map(|u| format!("https://pdsls.dev/{u}")),
+        _ => Some(pdsls_url(e)),
+    }
+}
+
+/// The event's record on pdsls.dev, or the repo for events without one.
+pub fn pdsls_url(e: &Event) -> String {
+    match e.at_uri() {
+        Some(uri) => format!("https://pdsls.dev/{uri}"),
+        None => format!("https://pdsls.dev/at://{}", e.did),
     }
 }
 
@@ -301,6 +309,14 @@ mod tests {
             Decoded::Event(e) => e,
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn pdsls_links() {
+        let like = ev(r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"commit","commit":{"operation":"create","collection":"app.bsky.feed.like","rkey":"3k","record":{}}}"#);
+        assert_eq!(pdsls_url(&like), "https://pdsls.dev/at://did:plc:7e6kocyzb77xkncplrkoojej/app.bsky.feed.like/3k");
+        let ident = ev(r#"{"did":"did:plc:7e6kocyzb77xkncplrkoojej","time_us":1,"kind":"identity","identity":{"did":"did:plc:7e6kocyzb77xkncplrkoojej","seq":1,"time":"2026-01-01T00:00:00Z"}}"#);
+        assert_eq!(pdsls_url(&ident), "https://pdsls.dev/at://did:plc:7e6kocyzb77xkncplrkoojej");
     }
 
     #[test]

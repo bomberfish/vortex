@@ -7,7 +7,7 @@
 
 use super::input::{InputEvent, TextInput};
 use super::rows::{
-    clock, fmt_bytes, fmt_count, fmt_duration_us, fmt_rate, json_lines, row_data, short_collection, web_url, JsonLine,
+    clock, fmt_bytes, fmt_count, fmt_duration_us, fmt_rate, json_lines, row_data, pdsls_url, short_collection, web_url, JsonLine,
     RowData,
 };
 use crate::config::{ConfigFile, SavedFilter, BUNDLED_FONT};
@@ -53,6 +53,7 @@ actions!(
         CopyJson,
         CopyUri,
         OpenInBrowser,
+        OpenInPdsls,
         RevealSelected,
         Quit,
     ]
@@ -100,6 +101,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("o", OpenInBrowser, list),
         KeyBinding::new("enter", OpenInBrowser, list),
         KeyBinding::new("r", RevealSelected, list),
+        KeyBinding::new("p", OpenInPdsls, list),
     ]);
 }
 
@@ -1048,6 +1050,7 @@ impl Vortex {
                 ("space", "tail on/off"),
                 ("c u o", "copy json / copy uri / open"),
                 ("r", "scroll to selected row"),
+                ("p", "open in pdsls.dev"),
                 ("⌘K", "clear"),
                 ("⌘B ⌘I", "sidebar / detail"),
                 ("⌘T ⌘= ⌘-", "theme / font size"),
@@ -1129,6 +1132,10 @@ impl Vortex {
             .child(self.chip("open", false, t).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.open_in_browser(&OpenInBrowser, window, cx)),
+            ))
+            .child(self.chip("pdsls", false, t).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| this.open_in_pdsls(&OpenInPdsls, window, cx)),
             ))
             .child(self.chip("+did", false, t).on_mouse_down(MouseButton::Left, {
                 let did = did.clone();
@@ -1481,6 +1488,12 @@ impl Vortex {
         }
     }
 
+    fn open_in_pdsls(&mut self, _: &OpenInPdsls, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(d) = &self.detail {
+            cx.open_url(&pdsls_url(&d.event));
+        }
+    }
+
     /// Scroll the event list to the selected row and stop tailing.
     fn reveal_selected(&mut self, _: &RevealSelected, window: &mut Window, cx: &mut Context<Self>) {
         let Some(id) = self.selected else { return };
@@ -1678,6 +1691,7 @@ impl Render for Vortex {
             .on_action(cx.listener(Self::copy_uri))
             .on_action(cx.listener(Self::open_in_browser))
             .on_action(cx.listener(Self::reveal_selected))
+            .on_action(cx.listener(Self::open_in_pdsls))
             .on_action(cx.listener(Self::quit))
             .on_drag_move(cx.listener(|this, ev: &DragMoveEvent<ResizeDrag>, window, cx| {
                 let x = ev.event.position.x;
