@@ -25,7 +25,10 @@ processed cursor, and fail over between hosts.
 ## Filtering
 
 Type in the filter bar (`/`). Terms are ANDed; `OR`, `-term`/`NOT`, and
-parentheses work as expected. Errors are underlined as you type.
+parentheses work as expected. Errors are underlined as you type. Field names
+and their values autocomplete (`tab` inserts, `↑` `↓` choose), including
+collections seen in the stream. Hover any label, number or button for what it
+means and its key.
 
 ```
 type:post lang:en has:media -is:reply

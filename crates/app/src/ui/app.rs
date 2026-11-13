@@ -5,7 +5,9 @@
 //! short timeout and falls back to the previous frame's rows if a writer
 //! (ingest batch, re-filter) is holding it.
 
+use super::complete::{complete, Completion};
 use super::input::{InputEvent, TextInput};
+use super::tip::tip;
 use super::rows::{
     clock, fmt_bytes, fmt_count, fmt_duration_us, fmt_rate, json_lines, row_data, pdsls_url, short_collection, web_url, JsonLine,
     RowData,
@@ -13,7 +15,7 @@ use super::rows::{
 use crate::config::{ConfigFile, SavedFilter, BUNDLED_FONT};
 use crate::theme::{resolve_palette, theme_names, Theme};
 use gpui::{
-    actions, canvas, div, fill, point, prelude::*, px, size, uniform_list, App, Bounds, ClipboardItem, Context, Div,
+    actions, canvas, deferred, div, fill, point, prelude::*, px, size, uniform_list, App, Bounds, ClipboardItem, Context, Div,
     DragMoveEvent, Entity, FocusHandle, Focusable, Hsla, KeyBinding, MouseButton, MouseDownEvent, Pixels,
     ScrollEvent, ScrollStrategy, SharedString, StyledText, UniformListScrollHandle, Window, WindowControlArea,
 };
@@ -191,8 +193,13 @@ pub struct Vortex {
     show_settings: bool,
     show_help: bool,
     measured_font: Option<(SharedString, Pixels)>,
+    /// Filter-bar suggestions for the token at the cursor.
+    completions: Vec<Completion>,
+    completion_ix: usize,
     /// Window corner style last pushed to the platform.
     applied_square: Option<bool>,
+    /// Focus the filter input on the next render (debug hooks have no window).
+    focus_filter_next_frame: bool,
 }
 
 impl Vortex {
@@ -204,12 +211,27 @@ impl Vortex {
         font_input.update(cx, |i, cx| i.set_text(&cfg.config.ui.font, cx));
 
         cx.subscribe_in(&filter_input, window, |this, _, ev: &InputEvent, window, cx| match ev {
-            InputEvent::Change => this.filter_changed(false, cx),
+            InputEvent::Change => {
+                this.filter_changed(false, cx);
+                this.update_completions(cx);
+            }
             InputEvent::Submit => {
+                this.completions.clear();
                 this.filter_changed(true, cx);
                 window.focus(&this.focus, cx);
             }
+            InputEvent::Cancel if !this.completions.is_empty() => {
+                this.completions.clear();
+                cx.notify();
+            }
             InputEvent::Cancel => window.focus(&this.focus, cx),
+            InputEvent::Complete => this.accept_completion(None, cx),
+            InputEvent::Up | InputEvent::Down if !this.completions.is_empty() => {
+                let n = this.completions.len();
+                this.completion_ix = if *ev == InputEvent::Up { (this.completion_ix + n - 1) % n } else { (this.completion_ix + 1) % n };
+                cx.notify();
+            }
+            InputEvent::Up | InputEvent::Down => {}
         })
         .detach();
         cx.subscribe_in(&font_input, window, |this, input, ev: &InputEvent, window, cx| match ev {
@@ -220,7 +242,7 @@ impl Vortex {
                 window.focus(&this.focus, cx);
             }
             InputEvent::Cancel => window.focus(&this.focus, cx),
-            InputEvent::Change => {}
+            _ => {}
         })
         .detach();
 
@@ -240,6 +262,8 @@ impl Vortex {
             filter_input,
             font_input,
             filter_error: None,
+            completions: Vec::new(),
+            completion_ix: 0,
             filter_gen: 0,
             refilter: None,
             scroll: UniformListScrollHandle::new(),
@@ -272,6 +296,7 @@ impl Vortex {
             show_help: false,
             measured_font: None,
             applied_square: None,
+            focus_filter_next_frame: false,
         };
         this.apply_config(cx);
         if let Some(e) = this.cfg.error.clone() {
@@ -341,6 +366,15 @@ impl Vortex {
             }
             Ok("settings") => self.show_settings = true,
             Ok("badfilter") => self.set_query("type:post lnag:en (has:media", cx),
+            // Completion popup for a field name, then (after accepting) for values.
+            Ok(mode @ ("complete" | "complete-accept")) => {
+                self.filter_input.update(cx, |i, cx| i.set_text("has:media ty", cx));
+                self.update_completions(cx);
+                if mode == "complete-accept" {
+                    self.accept_completion(None, cx);
+                }
+                self.focus_filter_next_frame = true;
+            }
             _ => {}
         }
         cx.notify();
@@ -482,6 +516,71 @@ impl Vortex {
 
     // ---- selection -------------------------------------------------------
 
+    /// Recompute filter suggestions for the token at the cursor.
+    fn update_completions(&mut self, cx: &mut Context<Self>) {
+        let input = self.filter_input.read(cx);
+        let nsids: Vec<&str> = self.pinned.iter().chain(self.facets.iter()).map(|r| r.nsid).collect();
+        let (_, list) = complete(input.text(), input.cursor(), &nsids);
+        if list != self.completions {
+            self.completion_ix = 0;
+        }
+        self.completions = list;
+        cx.notify();
+    }
+
+    /// Insert suggestion `ix` (default: the highlighted one).
+    fn accept_completion(&mut self, ix: Option<usize>, cx: &mut Context<Self>) {
+        let input = self.filter_input.read(cx);
+        let nsids: Vec<&str> = self.pinned.iter().chain(self.facets.iter()).map(|r| r.nsid).collect();
+        let (range, list) = complete(input.text(), input.cursor(), &nsids);
+        let Some(c) = list.get(ix.unwrap_or(self.completion_ix)).or(list.first()) else { return };
+        let insert = c.insert.clone();
+        self.filter_input.update(cx, |i, cx| i.replace(range, &insert, cx));
+    }
+
+    fn render_completions(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let mut list = div()
+            .absolute()
+            .top(t.row + t.pad)
+            .left(t.pad + t.ch * 2.)
+            .min_w(t.ch * 40.)
+            .max_w(t.ch * 80.)
+            .flex()
+            .flex_col()
+            .py(t.pad * 0.5)
+            .bg(t.bg_alt)
+            .border_1()
+            .border_color(t.border)
+            .rounded(t.radius)
+            .shadow_md()
+            .occlude();
+        for (i, c) in self.completions.iter().enumerate() {
+            let hover = t.bg_hover;
+            list = list.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(t.ch * 2.)
+                    .h(t.row)
+                    .px(t.pad)
+                    .cursor_pointer()
+                    .when(i == self.completion_ix, |d| d.bg(t.bg_sel))
+                    .when(i != self.completion_ix, |d| d.hover(move |s| s.bg(hover)))
+                    .child(div().flex_none().text_color(t.blue).child(c.label.clone()))
+                    .child(div().flex_1().min_w_0().truncate().text_color(t.fg_dim).child(c.doc.clone()))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, window, cx| {
+                            this.accept_completion(Some(i), cx);
+                            window.focus(&this.filter_input.focus_handle(cx), cx);
+                        }),
+                    ),
+            );
+        }
+        list = list.child(div().px(t.pad).text_color(t.fg_faint).child("tab insert · ↑↓ choose · esc close"));
+        deferred(list).with_priority(1)
+    }
+
     fn toggle_pin(&mut self, nsid: &str, cx: &mut Context<Self>) {
         let pinned = &mut self.cfg.config.filter.pinned;
         match pinned.iter().position(|p| p == nsid) {
@@ -604,6 +703,12 @@ impl Vortex {
         } else {
             "–".into()
         };
+        let conn_tip = match self.status.state {
+            ConnState::Live => format!("live from {}", self.status.host),
+            ConnState::Connecting => format!("connecting to {}", self.status.host),
+            ConnState::Waiting => format!("retrying: {}", self.status.error.as_deref().unwrap_or("connection lost")),
+            ConnState::Idle => "not connected".to_owned(),
+        };
         let history: Vec<f32> = self.sampler.history.iter().copied().collect();
         let matched: Vec<f32> = self.sampler.matched_history.iter().copied().collect();
         let (bar_color, match_color) = (t.fg_faint, t.accent);
@@ -636,18 +741,24 @@ impl Vortex {
                         move |s| s.bg(h)
                     })
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| this.toggle_connect(&ToggleConnect, window, cx)))
+                    .id("conn")
+                    .tooltip(tip(
+                        if self.status.state == ConnState::Idle { "connect" } else { "disconnect" },
+                        Some("⌘↵"),
+                        Some(&conn_tip),
+                    ))
                     .child(div().text_color(dot).child("●"))
                     .child(div().max_w(t.ch * 40.).truncate().text_color(t.fg_dim).child(state_text)),
             )
             .child(self.sep(t));
 
         for k in SourceKind::ALL {
-            let label = match k {
-                SourceKind::JetstreamV2 => "jetstream",
-                SourceKind::JetstreamV1 => "v1",
-                SourceKind::Firehose => "firehose",
+            let (label, about) = match k {
+                SourceKind::JetstreamV2 => ("jetstream", "Jetstream: JSON, server-side filtering, replay"),
+                SourceKind::JetstreamV1 => ("v1", "legacy Jetstream /subscribe endpoint"),
+                SourceKind::Firehose => ("firehose", "relay firehose: DAG-CBOR decoded locally; unfiltered, live only"),
             };
-            bar = bar.child(self.chip(label, k == kind, t).on_mouse_down(
+            bar = bar.child(self.chip(label, k == kind, t).id(label).tooltip(tip(label, None, Some(about))).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _, _, cx| {
                     if this.cfg.config.source.kind() != k {
@@ -662,7 +773,8 @@ impl Vortex {
         bar = bar.child(self.sep(t));
         if kind != SourceKind::Firehose {
             for (label, secs) in REWINDS {
-                bar = bar.child(self.chip(label, self.rewind_secs == secs, t).on_mouse_down(
+                let about = if secs == 0 { "start from now".to_owned() } else { format!("replay the last {label}, then continue live") };
+                bar = bar.child(self.chip(label, self.rewind_secs == secs, t).id(label).tooltip(tip(label, None, Some(&about))).on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _, _, cx| {
                         this.rewind_secs = secs;
@@ -672,7 +784,7 @@ impl Vortex {
             }
             bar = bar
                 .child(self.sep(t))
-                .child(self.chip("zstd", src.compress, t).on_mouse_down(
+                .child(self.chip("zstd", src.compress, t).id("zstd").tooltip(tip("zstd", None, Some("compressed stream: about 4× less bandwidth"))).on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _, _, cx| {
                         this.cfg.config.source.compress ^= true;
@@ -680,7 +792,7 @@ impl Vortex {
                         this.connect(cx);
                     }),
                 ))
-                .child(self.chip("srv", src.pushdown, t).on_mouse_down(
+                .child(self.chip("srv", src.pushdown, t).id("srv").tooltip(tip("server filter", None, Some("send kinds, collections and DIDs from the query to the server. Saves bandwidth; off keeps the full stream buffered so wider queries see history"))).on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _, _, cx| {
                         this.cfg.config.source.pushdown ^= true;
@@ -690,15 +802,23 @@ impl Vortex {
         }
 
         bar.child(div().flex_1())
-            .child(self.stat(fmt_rate(self.rates.events_per_s), "/s", t.fg, t))
-            .child(self.stat(fmt_rate(self.rates.matched_per_s), "✓/s", t.accent, t))
-            .child(self.stat(fmt_bytes(self.rates.wire_bytes_per_s), "/s", t.fg_dim, t))
-            .child(self.stat(lag, " lag", t.fg_dim, t))
-            .child(self.stat(format!("{:.0}%", self.rates.pipeline_load * 100.0), " cpu", t.fg_dim, t))
+            .child(self.stat(fmt_rate(self.rates.events_per_s), "/s", t.fg, t).id("st-in").tooltip(tip("events/s received", None, None)))
+            .child(self.stat(fmt_rate(self.rates.matched_per_s), "✓/s", t.accent, t).id("st-match").tooltip(tip("events/s matching the filter", None, None)))
+            .child(self.stat(fmt_bytes(self.rates.wire_bytes_per_s), "/s", t.fg_dim, t).id("st-wire").tooltip(tip("bandwidth", None, Some("bytes/s on the wire, after compression"))))
+            .child(self.stat(lag, " lag", t.fg_dim, t).id("st-lag").tooltip(tip("lag", None, Some("now minus the newest event's server time"))))
+            .child(self.stat(format!("{:.0}%", self.rates.pipeline_load * 100.0), " cpu", t.fg_dim, t).id("st-cpu").tooltip(tip("pipeline load", None, Some("share of one core spent decoding and filtering"))))
             .child(self.sep(t))
-            .child(self.stat(fmt_count(self.buffered as u64), " ev", t.fg_dim, t))
-            .child(self.stat(fmt_bytes(self.buffered_bytes as f64), "", t.fg_dim, t))
-            .child(self.stat(fmt_duration_us(self.span_us), "", t.fg_dim, t))
+            .child(
+                div()
+                    .id("st-buf")
+                    .flex()
+                    .flex_none()
+                    .gap(t.pad)
+                    .tooltip(tip("buffer", None, Some("events kept in memory for instant re-filtering: count · size · time span. Limits in settings")))
+                    .child(self.stat(fmt_count(self.buffered as u64), " ev", t.fg_dim, t))
+                    .child(self.stat(fmt_bytes(self.buffered_bytes as f64), "", t.fg_dim, t))
+                    .child(self.stat(fmt_duration_us(self.span_us), "", t.fg_dim, t)),
+            )
             .child(
                 canvas(
                     |_, _, _| (),
@@ -725,11 +845,11 @@ impl Vortex {
                 .flex_none(),
             )
             .child(self.sep(t))
-            .child(self.chip("?", self.show_help, t).on_mouse_down(
+            .child(self.chip("?", self.show_help, t).id("help").tooltip(tip("filter syntax & keys", Some("?"), None)).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.toggle_help(&ToggleHelp, window, cx)),
             ))
-            .child(self.chip("⚙", self.show_settings, t).on_mouse_down(
+            .child(self.chip("⚙", self.show_settings, t).id("settings").tooltip(tip("settings", Some("⌘,"), None)).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.toggle_settings(&ToggleSettings, window, cx)),
             ))
@@ -739,19 +859,37 @@ impl Vortex {
         let focused = self.filter_input.focus_handle(cx).is_focused(window);
         let mut right = div().flex().flex_none().items_center().gap(t.pad * 2.);
         if !self.status.server_filter.is_empty() {
-            right = right.child(self.stat(self.status.server_filter.clone(), "", t.aqua, t).child(div().text_color(t.fg_faint).child(" srv")));
+            right = right.child(
+                self.stat(self.status.server_filter.clone(), "", t.aqua, t)
+                    .child(div().text_color(t.fg_faint).child(" srv"))
+                    .id("srv-filter")
+                    .tooltip(tip("server-side filter", None, Some("this part of the query is sent to the server; other events never arrive"))),
+            );
         }
         if let Some(r) = &self.refilter {
-            right = right.child(self.stat(fmt_duration_us(r.elapsed.as_micros() as i64), "", t.fg_faint, t));
+            right = right.child(
+                self.stat(fmt_duration_us(r.elapsed.as_micros() as i64), "", t.fg_faint, t)
+                    .id("refilter")
+                    .tooltip(tip("last re-filter", None, Some("time to apply the filter to every buffered event"))),
+            );
         }
-        right = right.child(self.stat(fmt_count(self.view_len as u64), " rows", t.fg, t)).child(
-            self.chip(if self.follow { "▼ tail" } else { "▽ tail" }, self.follow, t).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| this.toggle_follow(&ToggleFollow, window, cx)),
-            ),
-        );
+        right = right
+            .child(
+                self.stat(fmt_count(self.view_len as u64), " rows", t.fg, t)
+                    .id("rows")
+                    .tooltip(tip("rows", None, Some("buffered events matching the filter"))),
+            )
+            .child(
+                self.chip(if self.follow { "▼ tail" } else { "▽ tail" }, self.follow, t)
+                    .id("tail")
+                    .tooltip(tip("tail", Some("space"), Some("keep the newest event in view")))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| this.toggle_follow(&ToggleFollow, window, cx)),
+                    ),
+            );
 
-        let mut bar = div().flex().flex_col().flex_none().bg(t.bg).border_b_1().border_color(t.border).child(
+        let mut bar = div().relative().flex().flex_col().flex_none().bg(t.bg).border_b_1().border_color(t.border).child(
             div()
                 .flex()
                 .items_center()
@@ -765,18 +903,45 @@ impl Vortex {
         if let Some(err) = &self.filter_error {
             bar = bar.child(div().px(t.pad).pb(t.pad * 0.5).text_color(t.red).truncate().child(err.clone()));
         }
+        if focused && !self.completions.is_empty() {
+            bar = bar.child(self.render_completions(t, cx));
+        }
         bar
     }
 
     fn render_sidebar(&self, t: &Theme, cx: &mut Context<Self>) -> Div {
         let query = self.filter_input.read(cx).text().to_owned();
-        let count_cell = |c: FacetCount, t: &Theme| {
+        // Without a filter "matched" equals "seen": show one column.
+        let filtered = !self.engine.store.filter().0.is_all();
+        let count_cell = move |c: FacetCount, t: &Theme| {
             div()
                 .flex()
                 .flex_none()
                 .gap(t.ch)
-                .child(div().text_color(if c.matched > 0 { t.accent } else { t.fg_faint }).child(fmt_count(c.matched as u64)))
-                .child(div().w(t.ch * 5.).flex().justify_end().text_color(t.fg_dim).child(fmt_count(c.seen as u64)))
+                .when(filtered, |d| {
+                    d.child(div().text_color(if c.matched > 0 { t.accent } else { t.fg_faint }).child(fmt_count(c.matched as u64)))
+                })
+                .child(
+                    div()
+                        .w(t.ch * 5.)
+                        .flex()
+                        .justify_end()
+                        .text_color(if c.seen > 0 { t.fg_dim } else { t.fg_faint })
+                        .child(fmt_count(c.seen as u64)),
+                )
+        };
+        let header = |title: &'static str, about: &'static str, t: &Theme| {
+            self.section(title, t)
+                .justify_between()
+                .id(title)
+                .tooltip(tip(title, None, Some(about)))
+                .child(
+                    div()
+                        .flex()
+                        .gap(t.ch)
+                        .when(filtered, |d| d.child(div().text_color(t.accent).child("match")))
+                        .child(div().w(t.ch * 5.).flex().justify_end().child("seen")),
+                )
         };
         let facet_row = |label: SharedString, color: Hsla, active: bool, c: FacetCount, t: &Theme| {
             let hover = t.bg_hover;
@@ -875,10 +1040,12 @@ impl Vortex {
             .h_full()
             .w(px(self.cfg.config.ui.sidebar_width.clamp(120., 600.)))
             .bg(t.bg_alt)
-            .child(self.section("kind", t))
+            .child(header("kind", "click to filter · alt-click to exclude. match: passes the filter · seen: buffered", t))
             .child(kinds)
-            .when(!self.pinned.is_empty(), |d| d.child(self.section("pinned", t)).child(pinned))
-            .child(self.section("collection", t))
+            .when(!self.pinned.is_empty(), |d| {
+                d.child(header("pinned", "always listed, in config order · right-click a collection to pin or unpin", t)).child(pinned)
+            })
+            .child(header("collection", "record types in the buffer, most common first · click to filter · alt-click to exclude · right-click to pin", t))
             .child(collections)
             .child(
                 self.section("saved", t).justify_between().child(
@@ -969,10 +1136,24 @@ impl Vortex {
             .bg(t.bg_alt)
             .text_color(t.fg_faint)
             .child(div().flex_none().w(t.ch * 12.5).child("utc"))
-            .child(div().flex_none().w(t.ch))
+            .child(
+                div()
+                    .id("h-op")
+                    .flex_none()
+                    .w(t.ch)
+                    .child("±")
+                    .tooltip(tip("operation", None, Some("+ create   ~ update   - delete   @ identity   ! account   % sync"))),
+            )
             .child(div().flex_none().w(t.ch * 18.).child("type"))
             .child(div().flex_none().w(t.ch * 16.).child("did"))
-            .child(div().flex_none().w(t.ch * 4.))
+            .child(
+                div()
+                    .id("h-marks")
+                    .flex_none()
+                    .w(t.ch * 4.)
+                    .child("·")
+                    .tooltip(tip("marks", None, Some("↩ reply   ❝ quote   ▣ images   ▶ video   ∞ link"))),
+            )
             .child(div().flex_1().child("text"));
 
         let list = uniform_list("events", self.view_len, cx.processor(|this, range, _window, cx| this.render_rows(range, cx)))
@@ -1117,41 +1298,41 @@ impl Vortex {
         let collection = e.collection_str();
         let mut actions = div().flex().flex_wrap().gap(t.pad).pt(t.pad);
         actions = actions
-            .child(self.chip("row", false, t).on_mouse_down(
+            .child(self.chip("row", false, t).id("d-row").tooltip(tip("row", Some("r"), Some("scroll the list to this event"))).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.reveal_selected(&RevealSelected, window, cx)),
             ))
-            .child(self.chip("json", false, t).on_mouse_down(
+            .child(self.chip("json", false, t).id("d-json").tooltip(tip("json", Some("c"), Some("copy the event JSON"))).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.copy_json(&CopyJson, window, cx)),
             ))
-            .child(self.chip("uri", false, t).on_mouse_down(
+            .child(self.chip("uri", false, t).id("d-uri").tooltip(tip("uri", Some("u"), Some("copy the AT-URI"))).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.copy_uri(&CopyUri, window, cx)),
             ))
-            .child(self.chip("open", false, t).on_mouse_down(
+            .child(self.chip("open", false, t).id("d-open").tooltip(tip("open", Some("↵"), Some("open on bsky.app (pdsls for other records)"))).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.open_in_browser(&OpenInBrowser, window, cx)),
             ))
-            .child(self.chip("pdsls", false, t).on_mouse_down(
+            .child(self.chip("pdsls", false, t).id("d-pdsls").tooltip(tip("pdsls", Some("p"), Some("open the record on pdsls.dev"))).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.open_in_pdsls(&OpenInPdsls, window, cx)),
             ))
-            .child(self.chip("+did", false, t).on_mouse_down(MouseButton::Left, {
+            .child(self.chip("+did", false, t).id("d-+did").tooltip(tip("+did", None, Some("only show this author"))).on_mouse_down(MouseButton::Left, {
                 let did = did.clone();
                 cx.listener(move |this, _, _, cx| this.toggle_term("did", &did, false, cx))
             }))
-            .child(self.chip("-did", false, t).on_mouse_down(MouseButton::Left, {
+            .child(self.chip("-did", false, t).id("d--did").tooltip(tip("-did", None, Some("hide this author"))).on_mouse_down(MouseButton::Left, {
                 let did = did.clone();
                 cx.listener(move |this, _, _, cx| this.toggle_term("did", &did, true, cx))
             }));
         if !collection.is_empty() {
             actions = actions
-                .child(self.chip("+type", false, t).on_mouse_down(
+                .child(self.chip("+type", false, t).id("d-+type").tooltip(tip("+type", None, Some("only show this record type"))).on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _, _, cx| this.toggle_term("collection", collection, false, cx)),
                 ))
-                .child(self.chip("-type", false, t).on_mouse_down(
+                .child(self.chip("-type", false, t).id("d--type").tooltip(tip("-type", None, Some("hide this record type"))).on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _, _, cx| this.toggle_term("collection", collection, true, cx)),
                 ));
@@ -1588,6 +1769,9 @@ impl Focusable for Vortex {
 
 impl Render for Vortex {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if std::mem::take(&mut self.focus_filter_next_frame) {
+            window.focus(&self.filter_input.focus_handle(cx), cx);
+        }
         let square = self.cfg.config.ui.square_corners;
         if self.applied_square != Some(square) {
             self.applied_square = Some(square);

@@ -39,6 +39,9 @@ actions!(
         Copy,
         Submit,
         Cancel,
+        Complete,
+        Up,
+        Down,
     ]
 );
 
@@ -77,6 +80,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-shift-right", SelectEnd, c),
         KeyBinding::new("enter", Submit, c),
         KeyBinding::new("escape", Cancel, c),
+        KeyBinding::new("tab", Complete, c),
+        KeyBinding::new("up", Up, c),
+        KeyBinding::new("down", Down, c),
     ]);
 }
 
@@ -85,6 +91,11 @@ pub enum InputEvent {
     Change,
     Submit,
     Cancel,
+    /// Tab: accept a suggestion.
+    Complete,
+    /// Up / down: move through suggestions.
+    Up,
+    Down,
 }
 
 pub struct TextInput {
@@ -133,6 +144,24 @@ impl TextInput {
         self.selection_reversed = false;
         self.marked_range = None;
         self.error_range = None;
+        cx.notify();
+    }
+
+    /// Byte offset of the cursor.
+    pub fn cursor(&self) -> usize {
+        self.cursor_offset()
+    }
+
+    /// Replace `range` with `text`, put the cursor after it, and emit `Change`.
+    pub fn replace(&mut self, range: Range<usize>, text: &str, cx: &mut Context<Self>) {
+        let len = self.content.len();
+        let range = range.start.min(len)..range.end.min(len);
+        self.content = format!("{}{}{}", &self.content[..range.start], text, &self.content[range.end..]).into();
+        let end = range.start + text.len();
+        self.selected_range = end..end;
+        self.selection_reversed = false;
+        self.marked_range = None;
+        cx.emit(InputEvent::Change);
         cx.notify();
     }
 
@@ -258,6 +287,18 @@ impl TextInput {
 
     fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
         cx.emit(InputEvent::Cancel);
+    }
+
+    fn complete(&mut self, _: &Complete, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(InputEvent::Complete);
+    }
+
+    fn up(&mut self, _: &Up, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(InputEvent::Up);
+    }
+
+    fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(InputEvent::Down);
     }
 
     fn on_mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -765,6 +806,9 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::submit))
             .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(Self::complete))
+            .on_action(cx.listener(Self::up))
+            .on_action(cx.listener(Self::down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
